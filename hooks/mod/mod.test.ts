@@ -189,3 +189,63 @@ test('a repair that cannot run leaves the original failure', async ($, on) => {
   expect(calls).toBe(1)
   expect(ran.text).toBe(MALFORMED)
 })
+
+// MARK: Long runs
+
+test('a run of a minute or more sends a notification with its outcome', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const notifications: string[] = []
+  on('ui.toast', () => ({ value: undefined }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.notify', (_, e) => {
+    notifications.push(e.text)
+    return { value: { isSent: true, channel: 'terminal' } }
+  })
+  on('tool.call', async () => {
+    await clock.advance(61_000)
+    return { result: {}, text: '{"counts":{"failed":0,"passed":5,"total":5}}' }
+  })
+
+  await $.tool.call({ tool: 'mcp__xcode__RunAllTests' })
+
+  expect(notifications).toEqual(['✓ RunAllTests · 1:01 · 5 passed'])
+})
+
+test('a shorter run does not notify', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const notifications: string[] = []
+  on('ui.toast', () => ({ value: undefined }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.notify', (_, e) => {
+    notifications.push(e.text)
+    return { value: { isSent: true, channel: 'terminal' } }
+  })
+  on('tool.call', async () => {
+    await clock.advance(59_000)
+    return { result: {}, text: 'ok' }
+  })
+
+  await $.tool.call({ tool: 'mcp__xcode__BuildProject' })
+
+  expect(notifications).toEqual([])
+})
+
+test('a notification that cannot be sent never affects the run', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('ui.toast', () => ({ value: undefined }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.notify', () => {
+    throw new Error('no channel')
+  })
+  on('tool.call', async () => {
+    await clock.advance(90_000)
+    return { result: {}, text: 'Build succeeded' }
+  })
+
+  const ran = await $.tool.call({ tool: 'mcp__xcode__BuildProject' })
+
+  expect(ran.text).toBe('Build succeeded')
+})

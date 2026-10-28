@@ -83,6 +83,8 @@ build_sim running · 0:41
 ✗ BuildProject · 0:48 · FooView.swift:12 Cannot find 'bar' in scope
 ```
 
+A run that takes a minute or more also sends the same line as a notification, through your own Claude Code notification settings.
+
 `xcrew xcode-skills` copies the agent skills your Xcode ships (SwiftUI, accessibility, device interaction) into the project. It copies whatever the installed Xcode has, so run it again after an Xcode update to pick up new ones.
 
 ## Which server does what

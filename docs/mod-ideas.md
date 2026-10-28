@@ -46,7 +46,7 @@ Effort: **S** a day or less, **M** a few days, **L** more, or needs research fir
 | Build band | `last ✓ build 1:12 ▁▂▂▃▂ · ✗ tests 3 failed · 1 plugin repaired` | Band | `$.store` history | M | Hide when idle? The hamzafer conventions say yes, after a few minutes |
 | Live progress | `build_sim · compiling 412/1,280 · 0:41` | Status line or band | Stream the build's log while it runs | L | Does MobileBuildMCP send MCP progress, or write a log the mod can follow? The `ToolProgress` render site only exposes `kind` |
 | Slow-run alert | `⚠ build_sim · 3:40, 2× its usual 1:50` | Toast | `$.store` history | S | Threshold: 1.5× the average, and only after 5 runs |
-| Done while you were away | macOS notification: `Tests finished · ✓ 412 passed · 4:10` | `$.ui.notify` | Duration | S | Only past 60 s; does `notify` respect Focus modes? |
+| ~~Done while you were away~~ | Shipped: runs of a minute or more notify, through the person's own notification settings | | | | |
 | Failure pane | Failing tests with their messages, the first compile errors as code | Pane, `/xcrew failures` | Result text | M | Same parsing as results in the toast |
 | Restyled tool rows | A build call's row in the transcript shows `✓ 1:12 · AVDPortfolio` instead of raw output | `ToolResult` render site | Result | M | Must keep the raw output reachable; check how `ToolResult` rewriting behaves in VS Code |
 

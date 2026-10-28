@@ -6,6 +6,8 @@ import { kindOf, parseTool } from './tools'
 /** How many earlier runs of each tool the average covers. */
 const HISTORY = 10
 const historyKey = (tool: string) => `durations.${tool}`
+/** Runs at least this long also send a notification. */
+const LONG_RUN_MS = 60_000
 
 /** Bookkeeping is best-effort: a clock, store or display failure must never fail a build. */
 async function quietly<T>(work: () => Promise<T> | T): Promise<T | undefined> {
@@ -17,8 +19,8 @@ async function quietly<T>(work: () => Promise<T> | T): Promise<T | undefined> {
 }
 
 /**
- * Times builds, test runs and app runs: a status line counts while one runs, and a toast reports
- * the result and how it compares with the last runs of the same tool.
+ * Times builds, test runs and app runs: a status line counts while one runs, a toast reports the
+ * result and how it compares with the last runs of the same tool, and a long run also notifies.
  */
 export function registerTiming(on: On): void {
   on('tool.call', async ($, e, next) => {
@@ -47,7 +49,10 @@ export function registerTiming(on: On): void {
     const outcome = result.deny !== undefined ? { ok: false } : summarize(name, { isError: result.isError === true, text: result.text ?? '' })
     const comparison = earlier.length > 0 ? ` (avg ${stopwatch(average(earlier))})` : ''
     const detail = outcome.detail ? ` · ${outcome.detail}` : ''
-    await quietly(() => $.ui.toast(`${outcome.ok ? '✓' : '✗'} ${name} · ${stopwatch(elapsed)}${comparison}${detail}`))
+    const summary = `${outcome.ok ? '✓' : '✗'} ${name} · ${stopwatch(elapsed)}${comparison}${detail}`
+    await quietly(() => $.ui.toast(summary))
+    // Long enough that the person has likely looked away; their notification settings decide how it arrives.
+    if (elapsed >= LONG_RUN_MS) await quietly(() => $.ui.notify(summary))
     return result
   })
 }

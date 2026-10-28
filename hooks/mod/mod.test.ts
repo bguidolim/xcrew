@@ -29,12 +29,33 @@ function watch(on: On, repairOutput = ''): Seen {
 
 // MARK: The project-file guard
 
-test('XcodeWrite is refused under either registration, with the alternative named', async ($, on) => {
+/** A project root holding these files; the engine beneath answers the mod's file checks. */
+function projectWith(on: On, files: string[]): void {
+  on('session.root', () => ({ value: '/work/App' }))
+  on('fs.exists', (_, e) => ({ value: files.some(file => e.path === `/work/App/${file}`) }))
+}
+
+test('in a generated project XcodeWrite is refused under either registration, with the alternative named', async ($, on) => {
+  projectWith(on, ['Project.swift'])
   on('tool.call', () => ({ result: {} }))
   for (const tool of ['mcp__xcode__XcodeWrite', 'mcp__plugin_xcrew_xcode__XcodeWrite']) {
     const ran = await $.tool.call({ tool, filePath: 'App/New.swift', content: '' })
     expect(ran.deny).toContain('Write tool')
   }
+})
+
+test('an XcodeGen project counts as generated too', async ($, on) => {
+  projectWith(on, ['project.yml'])
+  on('tool.call', () => ({ result: {} }))
+  const ran = await $.tool.call({ tool: 'mcp__xcode__XcodeWrite', filePath: 'a', content: '' })
+  expect(ran.deny).toBeDefined()
+})
+
+test('in a classic Xcode project XcodeWrite works, since it is how a file joins its target there', async ($, on) => {
+  projectWith(on, ['App.xcodeproj'])
+  on('tool.call', () => ({ result: { ok: true } }))
+  const ran = await $.tool.call({ tool: 'mcp__xcode__XcodeWrite', filePath: 'a', content: '' })
+  expect(ran.deny).toBeUndefined()
 })
 
 test('other Xcode file tools pass', async ($, on) => {

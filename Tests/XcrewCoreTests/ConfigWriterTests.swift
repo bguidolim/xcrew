@@ -39,3 +39,36 @@ import XcrewTestSupport
         #expect(try String(contentsOf: backup, encoding: .utf8) == "mine: true\n")
     }
 }
+
+@Suite struct HandEditedConfigTests {
+    let answers = ProfileAnswers(container: "App.xcworkspace", testSimulator: "iPhone 17")
+
+    @Test func aManagedConfigEditedByHandIsKept() throws {
+        let project = Project.temporary()
+        _ = try ConfigWriter.write(answers, to: project)
+        let edited = try String(contentsOf: project.mobileBuildMCPConfig, encoding: .utf8) + "debuggerBackend: lldb-cli\n"
+        try edited.write(to: project.mobileBuildMCPConfig, atomically: true, encoding: .utf8)
+
+        #expect(try ConfigWriter.write(answers, to: project) == .keptEdited)
+        #expect(try String(contentsOf: project.mobileBuildMCPConfig, encoding: .utf8) == edited)
+    }
+
+    @Test func forceReplacesAnEditedConfigAndKeepsABackup() throws {
+        let project = Project.temporary()
+        _ = try ConfigWriter.write(answers, to: project)
+        try "edited: true\n".write(to: project.mobileBuildMCPConfig, atomically: true, encoding: .utf8)
+        guard case .written(let backup?) = try ConfigWriter.write(answers, to: project, force: true) else {
+            Issue.record("expected a backup")
+            return
+        }
+        #expect(try String(contentsOf: backup, encoding: .utf8) == "edited: true\n")
+    }
+
+    @Test func aConfigFromAnEarlierXcrewIsStillUpdated() throws {
+        // Earlier versions left the marker empty.
+        let project = Project.temporary()
+        project.write("old: true\n", to: ".mobilebuildmcp/config.yaml")
+        try Data().write(to: project.managedMarker)
+        #expect(try ConfigWriter.write(answers, to: project) == .written(backup: nil))
+    }
+}

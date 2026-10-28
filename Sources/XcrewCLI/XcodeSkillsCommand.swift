@@ -5,7 +5,7 @@ import XcrewCore
 struct XcodeSkillsCommand: Command {
     let name = "xcode-skills"
     let usage = [
-        "xcode-skills [--list] [NAME...]   copy the agent skills this Xcode ships into .claude/skills",
+        "xcode-skills [--list] [--force] [NAME...]   copy the agent skills this Xcode ships into .claude/skills",
         "                                  (all unless names are given; run again after an Xcode update)",
     ]
 
@@ -17,8 +17,13 @@ struct XcodeSkillsCommand: Command {
             skills.available.forEach(invocation.print)
             return 0
         }
-        let copied = try skills.copy(invocation.arguments.positional, to: invocation.context.project.skillsFolder)
-        invocation.print("xcrew: copied \(copied.count) Xcode skills into .claude/skills: \(copied.joined(separator: ", "))")
+        let report = try skills.copy(invocation.arguments.positional, to: invocation.context.project.skillsFolder, replacing: invocation.arguments.has("force"))
+        if !report.copied.isEmpty {
+            invocation.print("xcrew: copied \(report.copied.count) Xcode skills into .claude/skills: \(report.copied.joined(separator: ", "))")
+        }
+        if !report.kept.isEmpty {
+            invocation.print("xcrew: kept the project's own \(report.kept.joined(separator: ", ")) (--force replaces them)")
+        }
         return 0
     }
 }

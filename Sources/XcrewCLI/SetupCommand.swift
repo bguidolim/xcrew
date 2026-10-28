@@ -45,6 +45,8 @@ struct SetupCommand: Command {
             uiTestScheme: answer("ui-scheme")
         )
         switch try ConfigWriter.write(answers, to: context.project, force: invocation.arguments.has("force")) {
+        case .keptEdited:
+            invocation.print("xcrew: .mobilebuildmcp/config.yaml was edited after xcrew wrote it; left as is (--force replaces it, keeping a backup)")
         case .keptUnmanaged:
             invocation.print("xcrew: .mobilebuildmcp/config.yaml exists and xcrew didn't write it; left as is (--force replaces it, keeping a backup)")
         case .written(let backup):

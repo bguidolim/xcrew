@@ -52,7 +52,7 @@ Everything that touches the machine goes through `Machine` (environment, home fo
 
 `hooks/mod/register.ts` registers three `tool.call` hooks. Hooks on one event run in registration order, each wrapping the next:
 
-1. **guard**: matched on `XcodeWrite`; refuses it.
+1. **guard**: matched on `XcodeWrite`; refuses it when the project root has a Tuist or XcodeGen manifest, and lets it through in a classic project.
 2. **timing**: the one unmatched hook; times calls `tools.ts` classifies as build, test or run, by name pattern so new tools are timed without a change. Its bookkeeping is best-effort and never fails a build.
 3. **repair**: matched on the Xcode tools that build; on "produced malformed response" it runs `xcrew repair-macros` and calls `next` again.
 

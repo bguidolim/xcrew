@@ -29,7 +29,7 @@ The routing table reaches each session at start. This file holds what each serve
 - `RenderPreview`: the first render of a module builds it (minutes), later variants take seconds. Variants: light/dark, contrast, Dynamic Type sizes, orientation, locales.
 - `XcodeRefreshCodeIssuesInFile` can time out on a file created moments ago; retry once.
 - Tests run through the active scheme's test plan; schemes without one fall back to their test targets.
-- `XcodeWrite` is refused: it re-saves the whole project file in Xcode's newer format. Write files with Write; synchronized folders and generated projects pick them up. `XcodeUpdate` and `XcodeRM` are harmless but add nothing over Edit and `rm`.
+- `XcodeWrite` re-saves the whole project file in Xcode's newer format. In a Tuist or XcodeGen project it's refused: write files with Write and the generator picks them up. In a classic project it's allowed, and it's the way a new file joins its target; projects using synchronized folders pick up files written with Write anyway. `XcodeUpdate` and `XcodeRM` are harmless but add nothing over Edit and `rm`.
 
 ## When an Xcode MCP build fails with "… produced malformed response"
 

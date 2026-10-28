@@ -20,15 +20,35 @@ public struct XcodeSkills: Sendable {
         }
     }
 
-    /// Copies `names` (all available ones when empty), replacing earlier copies; returns what it copied.
-    public func copy(_ names: [String] = [], to destination: URL) throws -> [String] {
+    public struct CopyReport: Sendable, Equatable {
+        public var copied: [String] = []
+        /// Already in the project, so left alone: a team may keep its own skill of the same name.
+        public var kept: [String] = []
+
+        public init(copied: [String] = [], kept: [String] = []) {
+            self.copied = copied
+            self.kept = kept
+        }
+    }
+
+    /// Copies `names` (all available ones when empty). A skill the project already has is kept
+    /// unless `replacing` is set.
+    public func copy(_ names: [String] = [], to destination: URL, replacing: Bool = false) throws -> CopyReport {
         let chosen = names.isEmpty ? available : names.filter(available.contains)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        var report = CopyReport()
         for name in chosen {
             let target = destination.appending(path: name)
-            try? FileManager.default.removeItem(at: target)
+            if FileManager.default.fileExists(atPath: target.path) {
+                guard replacing else {
+                    report.kept.append(name)
+                    continue
+                }
+                try FileManager.default.removeItem(at: target)
+            }
             try FileManager.default.copyItem(at: source.appending(path: name), to: target)
+            report.copied.append(name)
         }
-        return chosen
+        return report
     }
 }

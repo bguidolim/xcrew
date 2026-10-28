@@ -27,13 +27,23 @@ import XcrewTestSupport
         #expect(await XcodeSkills.locate(using: FakeRunner()) == nil)
     }
 
-    @Test func copiesAllOrTheNamedOnesReplacingEarlierCopies() async throws {
+    @Test func copiesAllOrTheNamedOnes() async throws {
         let skills = try #require(await XcodeSkills.locate(using: runner(for: xcodePlugin())))
         let project = Project.temporary()
-        project.write("stale", to: ".claude/skills/swiftui-specialist/SKILL.md")
+        #expect(try skills.copy(["swiftui-specialist", "not-shipped"], to: project.skillsFolder) == .init(copied: ["swiftui-specialist"]))
+        #expect(try skills.copy(to: project.skillsFolder) == .init(copied: ["device-interaction"], kept: ["swiftui-specialist"]))
+    }
 
-        #expect(try skills.copy(["swiftui-specialist", "not-shipped"], to: project.skillsFolder) == ["swiftui-specialist"])
-        #expect(try String(contentsOf: project.skillsFolder.appending(path: "swiftui-specialist/SKILL.md"), encoding: .utf8) == "# A")
-        #expect(try skills.copy(to: project.skillsFolder) == ["device-interaction", "swiftui-specialist"])
+    @Test func aSkillAlreadyInTheProjectIsKeptUnlessReplaced() async throws {
+        let skills = try #require(await XcodeSkills.locate(using: runner(for: xcodePlugin())))
+        let project = Project.temporary()
+        project.write("the team's own", to: ".claude/skills/swiftui-specialist/SKILL.md")
+        let skill = project.skillsFolder.appending(path: "swiftui-specialist/SKILL.md")
+
+        #expect(try skills.copy(["swiftui-specialist"], to: project.skillsFolder) == .init(kept: ["swiftui-specialist"]))
+        #expect(try String(contentsOf: skill, encoding: .utf8) == "the team's own")
+
+        #expect(try skills.copy(["swiftui-specialist"], to: project.skillsFolder, replacing: true) == .init(copied: ["swiftui-specialist"]))
+        #expect(try String(contentsOf: skill, encoding: .utf8) == "# A")
     }
 }

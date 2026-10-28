@@ -7,7 +7,7 @@ Three MCP servers serve this project; their tool names carry the server's (`…x
 | Build, test (`-only-testing:` through `extraArgs`), coverage, simulators, tapping through the app, LLDB | MobileBuildMCP. Switch setups with `session_use_defaults_profile` (`unit`, `ui`, `app`) |
 | Compile errors for one file, SwiftUI previews, running a snippet in a module, Organizer crash logs, a physical device | Xcode MCP |
 | Apple documentation, with each API's minimum OS version | Sosumi; Xcode's `DocumentationSearch` only offline |
-| Creating and editing files | Claude's own Write and Edit. `XcodeWrite` re-saves the whole project file and is refused |
+| Creating and editing files | Claude's own Write and Edit. In a Tuist or XcodeGen project, `XcodeWrite` re-saves the generated project file and is refused; in a classic project, use it when a new file must join a target |
 | Project, target, entitlement or build-setting changes | Neither server: edit the project's source of truth (Tuist or XcodeGen manifests, or the project in Xcode) |
 
 - **Compile errors:** trust the Xcode MCP's `XcodeRefreshCodeIssuesInFile`. In a project without a `Package.swift` (a plain Xcode, Tuist or XcodeGen project), Claude Code's SourceKit `No such module` errors are false: it checks each file alone against the macOS SDK.

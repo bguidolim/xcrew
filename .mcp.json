@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "MobileBuildMCP": {
+      "command": "/bin/sh",
+      "args": [
+        "-c",
+        "cd \"$1\" && PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin\" exec mobilebuildmcp mcp",
+        "mobilebuildmcp",
+        "${CLAUDE_PROJECT_DIR}"
+      ],
+      "env": { "MOBILEBUILDMCP_SENTRY_DISABLED": "true" }
+    },
+    "xcode": {
+      "command": "xcrun",
+      "args": ["mcpbridge"]
+    },
+    "sosumi": {
+      "type": "http",
+      "url": "https://sosumi.ai/mcp"
+    }
+  }
+}

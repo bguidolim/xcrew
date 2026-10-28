@@ -1,0 +1,21 @@
+#!/bin/sh
+# Runs the xcrew Swift CLI, building it first when no build matches the current sources.
+# Builds are cached by a hash of the sources, so updating the plugin rebuilds once and Swift's
+# ABI stability keeps a build working across Xcode updates. Build output goes to stderr only:
+# hooks reply on stdout.
+set -eu
+
+root=$(cd "$(dirname "$0")/.." && pwd -P)
+cache=${XCREW_CACHE:-"$HOME/Library/Caches/xcrew"}
+key=$(cd "$root" && find Package.swift Sources -type f -name '*.swift' | LC_ALL=C sort | xargs cat | shasum | cut -c1-16)
+binary="$cache/$key/xcrew"
+
+if [ ! -x "$binary" ]; then
+    echo "xcrew: building the CLI for this version (once, about 10 s)…" >&2
+    swift build -c release --product xcrew --package-path "$root" --scratch-path "$cache/build" >&2
+    mkdir -p "$cache/$key"
+    cp "$cache/build/release/xcrew" "$binary.partial"
+    mv "$binary.partial" "$binary"
+fi
+
+XCREW_ROOT=$root exec "$binary" "$@"

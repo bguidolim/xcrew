@@ -1,0 +1,11 @@
+{
+  "name": "xcrew",
+  "owner": { "name": "Brenno Ferrari", "url": "https://github.com/breferrari" },
+  "plugins": [
+    {
+      "name": "xcrew",
+      "source": "./",
+      "description": "Xcode MCP + MobileBuildMCP + Sosumi for iOS projects in Claude Code"
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+---
+name: xcrew
+description: Reference for the Xcode MCP, MobileBuildMCP and Sosumi setup xcrew installs. Load before configuring either server, and when an Xcode MCP call fails ("not approved", "produced malformed response", "File not found in project structure", a timeout), a MobileBuildMCP tool is missing, LLDB refuses `expr`, or SourceKit reports `No such module`.
+---
+
+# xcrew reference
+
+The routing table reaches each session at start. This file holds what each server needs to work and what to do when it doesn't. `xcrew doctor` checks all of it and prints the fix for anything wrong.
+
+## MobileBuildMCP
+
+- Formerly XcodeBuildMCP: version 2.7.1 renamed the binary, the `MOBILEBUILDMCP_*` environment variables and the config folder, with no fallback to the old ones.
+- Config: `.mobilebuildmcp/config.yaml`, read from the project root at server start. `xcrew setup` (or `/xcrew:setup`) writes it and marks it with `.mobilebuildmcp/.xcrew-managed`; a later setup rewrites a marked config and leaves an unmarked one alone. Delete the marker to keep hand edits.
+- Enabled tool groups: `simulator`, `sim-env` (custom: erase, appearance, location, keyboard toggles), `xcode-ide` (a bridge to every Xcode MCP tool), `ui-automation`, `debugging`. A tool that "doesn't exist" usually means its group is off; groups load at server start, so restart Claude Code after changing them.
+- Profiles: `unit` (test simulator; set the module's scheme per run with `session_set_defaults`), `ui` (UI-test scheme), `app` (app scheme and bundle ID). Switch with `session_use_defaults_profile`. Saving defaults with `persist: true` also makes that profile active — set `activeSessionDefaultsProfile` back afterwards.
+- Tests: `test_sim` takes no scheme argument; set it in the session defaults, then pass `-only-testing:<Target>/<Class>` through `extraArgs`.
+- Coverage tools need an absolute `.xcresult` path; `~` is not expanded.
+- LLDB: attach, stack, breakpoints and `image list` work with the default DAP backend; `expr` needs `debuggerBackend: lldb-cli` in the config.
+- The `mobilebuildmcp` command line resolves `simulatorName` on the newest installed iOS only; pass `--simulator-id` there. The MCP server is unaffected.
+- Telemetry is off (`sentryDisabled: true` and `MOBILEBUILDMCP_SENTRY_DISABLED=true`). The `mobilebuildmcp://doctor` resource's "Sentry enabled" line reads only a legacy variable and says Yes regardless; its Environment Variables section is accurate.
+- Leave `incrementalBuildsEnabled` off: it downloads and runs `xcodemake`, writes a large `Makefile` into the project root, and was slower than plain rebuilds in testing.
+
+## Xcode MCP
+
+- Works with Xcode closed once Claude Code is approved. "This agent isn't approved" → call `XcodeOpenWorkspace` on the workspace; Xcode shows a dialog the user approves and sets to always allow. `xcrun mcp-server status` lists approved agents and folders.
+- File tools take **project-navigator paths**, not disk paths (`File not found in project structure` means a disk path was passed). Look paths up with `XcodeGlob` first.
+- Previews, snippets and per-file diagnostics need the **active scheme** to build the file ("Active scheme does not build this file" → `XcodeSwitchScheme`). Switching scheme or destination also changes the user's Xcode window.
+- Builds land in Xcode's own DerivedData, shared with the IDE, so they share its failures.
+- `RenderPreview`: the first render of a module builds it (minutes), later variants take seconds. Variants: light/dark, contrast, Dynamic Type sizes, orientation, locales.
+- `XcodeRefreshCodeIssuesInFile` can time out on a file created moments ago; retry once.
+- Tests run through the active scheme's test plan; schemes without one fall back to their test targets.
+- `XcodeWrite` is refused: it re-saves the whole project file in Xcode's newer format. Write files with Write; synchronized folders and generated projects pick them up. `XcodeUpdate` and `XcodeRM` are harmless but add nothing over Edit and `rm`.
+
+## When an Xcode MCP build fails with "… produced malformed response"
+
+A macro plugin (for example a mocking library's `…Macros` binary) was killed at launch after Xcode rewrote it in place. xcrew repairs it on its own: the mod re-copies dead plugins and retries the build before the failure reaches you, and a hook does the same after a failed build or `GetBuildLog` where mods don't run. By hand: `xcrew repair-macros` (`--check` only reports). It recurs after each plugin rebuild; MobileBuildMCP builds, with their own DerivedData, are unaffected. If a plugin still doesn't answer after a re-copy, clean the build folder.
+
+## SourceKit `No such module` errors
+
+Claude Code's Swift language server (sourcekit-lsp) reads build settings only from a Swift package, a compilation database or a build server; it cannot read an Xcode project. Without a `Package.swift` it checks each file alone against the macOS SDK, so `import UIKit` and every first-party import show as errors and go-to-definition finds nothing across modules. Only same-file errors are real. Check with the Xcode MCP instead; `xcode-build-server` can give sourcekit-lsp the real flags from Xcode's build log (untested by xcrew).
+
+## Apple documentation
+
+Sosumi first: search returns short results with links (including WWDC sessions), and each fetched page shows the API's minimum OS version. Conformance conditions in Apple's data can be wrong; check the SDK's `.swiftinterface` when one matters. The Xcode MCP's `DocumentationSearch` matches the installed SDK but omits availability and returns long results — use it offline.

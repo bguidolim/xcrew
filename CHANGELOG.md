@@ -1,0 +1,8 @@
+# Changelog
+
+## 0.1.0 — unreleased
+
+- Plugin with MobileBuildMCP, the Xcode MCP and Sosumi; a session briefing with the routing rules.
+- Mod: macro-plugin repair with retry, build and test timing, the `XcodeWrite` guard.
+- Swift CLI: `setup`, `doctor`, `repair-macros`, `xcode-skills`, and the hook entry points.
+- mcs techpack installing the plugin, MobileBuildMCP and the per-project setup.

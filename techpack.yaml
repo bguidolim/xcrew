@@ -1,0 +1,99 @@
+schemaVersion: 1
+identifier: xcrew
+displayName: xcrew
+description: Apple's Xcode MCP, Sentry's MobileBuildMCP and Sosumi set up to work together in an iOS project
+minMCSVersion: "2026.10.25"
+
+# The Claude Code plugin carries the servers, hooks, skills and mod; this pack installs it with
+# the Homebrew package it needs, asks the per-project questions and runs the checks.
+# Tests/ManifestTests keeps the prompts and checks in step with the Swift CLI.
+ignore:
+  - Tests/
+  - docs/
+  - CONTRIBUTING.md
+  - SECURITY.md
+  - CHANGELOG.md
+  - CLAUDE.md
+
+prompts:
+  - key: PROJECT
+    type: fileDetect
+    label: "Workspace or project Claude should build"
+    detectPattern:
+      - "*.xcworkspace"
+      - "*.xcodeproj"
+  - key: TEST_SIMULATOR
+    type: input
+    label: "Simulator for unit and snapshot tests (empty: the newest iPhone installed)"
+    default: ""
+  - key: APP_SIMULATOR
+    type: input
+    label: "Simulator for UI tests and running the app (empty: the test simulator)"
+    default: ""
+  - key: APP_SCHEME
+    type: input
+    label: "Scheme that builds the app (empty: no app profile)"
+    default: ""
+  - key: APP_BUNDLE_ID
+    type: input
+    label: "App bundle ID (empty: none)"
+    default: ""
+  - key: UI_TEST_SCHEME
+    type: input
+    label: "UI-test scheme (empty: no ui profile)"
+    default: ""
+
+components:
+  - id: mobilebuildmcp
+    displayName: MobileBuildMCP
+    description: Sentry's build, test, simulator, UI-automation and LLDB server (formerly XcodeBuildMCP)
+    brew: getsentry/xcodebuildmcp/mobilebuildmcp
+
+  - id: plugin
+    displayName: xcrew plugin
+    description: The MCP servers, hooks, skills and mod
+    plugin: "xcrew@breferrari/xcrew"
+
+  - id: gitignore
+    description: MobileBuildMCP's per-project config folder
+    gitignore:
+      - .mobilebuildmcp
+
+configureProject:
+  script: mcs/configure.sh
+
+supplementaryDoctorChecks:
+  - type: shellScript
+    name: MobileBuildMCP 2.7.1 or newer
+    section: xcrew
+    command: mcs/checks/mobilebuildmcp--version.sh
+    fixCommand: "brew upgrade getsentry/xcodebuildmcp/mobilebuildmcp"
+  - type: shellScript
+    name: No old xcodebuildmcp on PATH
+    section: xcrew
+    command: mcs/checks/mobilebuildmcp--no-legacy-binary.sh
+  - type: shellScript
+    name: MobileBuildMCP project config
+    section: xcrew
+    command: mcs/checks/mobilebuildmcp--project-config.sh
+  - type: shellScript
+    name: Configured simulators exist
+    section: xcrew
+    command: mcs/checks/mobilebuildmcp--simulators.sh
+  - type: shellScript
+    name: Headless Xcode MCP enabled
+    section: xcrew
+    command: mcs/checks/xcode-mcp--headless-enabled.sh
+  - type: shellScript
+    name: Claude Code approved in Xcode
+    section: xcrew
+    command: mcs/checks/xcode-mcp--claude-approved.sh
+  - type: shellScript
+    name: Xcode refuses unsigned agents
+    section: xcrew
+    command: mcs/checks/xcode-mcp--unsigned-agents-off.sh
+    fixCommand: "defaults write com.apple.dt.Xcode IDEAllowUnauthenticatedAgents -bool NO"
+  - type: shellScript
+    name: Macro plugins answer
+    section: xcrew
+    command: mcs/checks/xcode-mcp--macro-plugins.sh

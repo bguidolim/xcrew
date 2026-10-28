@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/breferrari/xcrew/main/assets/banner.jpg" alt="Xcrew: a brushed-steel screw with a copper-orange X in its head" width="100%">
+<img src="https://raw.githubusercontent.com/breferrari/xcrew/main/assets/banner.png" alt="Xcrew: a brushed-steel screw with a copper-orange X in its head" width="100%">
 
 ### The crew that gets **Claude Code** working with **Xcode**.
 

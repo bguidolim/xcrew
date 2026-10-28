@@ -2,8 +2,7 @@ import Foundation
 
 /// Finds the macro plugins Xcode built for a project.
 ///
-/// Searches the DerivedData folders named after the project's workspace or project (Xcode names
-/// them `<name>-<hash>`), and takes executables named like Swift macro plugins (`…Macros`,
+/// Searches the DerivedData folders named after the project (`Project.derivedDataNames`), and takes executables named like Swift macro plugins (`…Macros`,
 /// `…MacrosPlugin`, `…MacroPlugin`) that are Mach-O binaries. `XCREW_DERIVED_DATA` points at
 /// another DerivedData folder; `XCREW_MACRO_PLUGINS` adds binary names (comma-separated) for
 /// plugins named otherwise.
@@ -23,7 +22,7 @@ public struct MacroPluginLocator: Sendable {
     public init(project: Project, machine: Machine) {
         let derivedData = machine.value("XCREW_DERIVED_DATA").map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             ?? machine.home.appending(path: "Library/Developer/Xcode/DerivedData")
-        let prefixes = Set(project.xcodeContainers.map { ($0 as NSString).deletingPathExtension + "-" })
+        let prefixes = Set(project.derivedDataNames.map { $0 + "-" })
         let builds = Self.children(of: derivedData).filter { folder in prefixes.contains { folder.lastPathComponent.hasPrefix($0) } }
         // Products/ also holds .xctestrun files beside the configuration folders.
         let folders = builds.flatMap { Self.children(of: $0.appending(path: "Build/Products")) }.filter(Self.isDirectory)

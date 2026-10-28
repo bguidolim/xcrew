@@ -27,6 +27,16 @@ public struct Project: Sendable, Equatable {
         return names.filter { $0.hasSuffix(".xcworkspace") }.sorted() + names.filter { $0.hasSuffix(".xcodeproj") }.sorted()
     }
 
+    /// The names Xcode gives this project's DerivedData folders (`<name>-<hash>`): each workspace
+    /// or project, and for a Swift package opened directly, the package folder.
+    public var derivedDataNames: Set<String> {
+        var names = Set(xcodeContainers.map { ($0 as NSString).deletingPathExtension })
+        if FileManager.default.fileExists(atPath: root.appending(path: "Package.swift").path) {
+            names.insert(root.lastPathComponent)
+        }
+        return names
+    }
+
     /// Files whose presence marks an Apple-platform project, including generated ones
     /// (Tuist, XcodeGen) whose workspace may not exist yet.
     static let appleProjectMarkers = ["Package.swift", "Project.swift", "Workspace.swift", "Tuist", "project.yml"]

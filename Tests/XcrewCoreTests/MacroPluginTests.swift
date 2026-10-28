@@ -89,3 +89,25 @@ import XcrewTestSupport
         #expect(MacroPluginLocator(project: project, machine: machine).productFolders.map(\.lastPathComponent) == ["Release"])
     }
 }
+
+@Suite struct SwiftPackageLocatorTests {
+    /// Xcode names a package's DerivedData after the package folder, as it found for a package
+    /// opened directly in Xcode 27.
+    @Test func aSwiftPackageIsFoundByItsFolderName() throws {
+        let project = Project.temporary()
+        project.write("// swift-tools-version:6.2\n", to: "Package.swift")
+        let derivedData = project.root.appending(path: "dd")
+        let products = derivedData.appending(path: "\(project.root.lastPathComponent)-abc123/Build/Products/Debug")
+        try FileManager.default.createDirectory(at: products, withIntermediateDirectories: true)
+        let machine = Machine(environment: ["XCREW_DERIVED_DATA": derivedData.path], home: project.root, runner: FakeRunner())
+        #expect(MacroPluginLocator(project: project, machine: machine).productFolders.map(\.path) == [products.path])
+    }
+
+    @Test func aFolderWithNoPackageOrContainerIsNotSearched() throws {
+        let project = Project.temporary()
+        let derivedData = project.root.appending(path: "dd")
+        try FileManager.default.createDirectory(at: derivedData.appending(path: "\(project.root.lastPathComponent)-abc/Build/Products/Debug"), withIntermediateDirectories: true)
+        let machine = Machine(environment: ["XCREW_DERIVED_DATA": derivedData.path], home: project.root, runner: FakeRunner())
+        #expect(MacroPluginLocator(project: project, machine: machine).productFolders.isEmpty)
+    }
+}

@@ -1,0 +1,36 @@
+import Foundation
+
+/// The build phase Tuist generated before 4.203 for each macro target. It `cp -f`s the macOS
+/// plugin into the active destination's products, overwriting the file in place, which is what
+/// gets plugins killed. Tuist 4.203 removed it (tuist#11825).
+public enum MacroCopyPhase {
+    /// The phase's own comment: specific to it, unlike the build-setting paths it shares.
+    static let signature = "compile the macOS executable transitively"
+    /// Folders never holding a project the developer builds from.
+    static let skipped: Set<String> = ["node_modules", "Pods", "Carthage", "DerivedData", "build"]
+    static let maxDepth = 5
+
+    /// Names of the generated projects in `project` that still have the phase.
+    public static func projects(in project: Project) -> [String] {
+        let tuistDerived = project.root.appending(path: "Tuist/.build/tuist-derived/Projects")
+        let candidates = projectFiles(under: project.root, depth: 0)
+            + MacroPluginLocator.children(of: tuistDerived).flatMap { projectFiles(under: $0, depth: maxDepth - 1) }
+        return candidates.filter(containsPhase).map {
+            ($0.deletingLastPathComponent().lastPathComponent as NSString).deletingPathExtension
+        }.sorted()
+    }
+
+    static func projectFiles(under folder: URL, depth: Int) -> [URL] {
+        guard depth <= maxDepth else { return [] }
+        return MacroPluginLocator.children(of: folder).flatMap { child -> [URL] in
+            let name = child.lastPathComponent
+            if name.hasSuffix(".xcodeproj") { return [child.appending(path: "project.pbxproj")] }
+            guard !name.hasPrefix("."), !skipped.contains(name), MacroPluginLocator.isDirectory(child) else { return [] }
+            return projectFiles(under: child, depth: depth + 1)
+        }
+    }
+
+    static func containsPhase(_ file: URL) -> Bool {
+        (try? String(contentsOf: file, encoding: .utf8))?.contains(signature) == true
+    }
+}

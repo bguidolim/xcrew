@@ -25,7 +25,7 @@ struct HookCommand: Command {
             guard event.mentionsKilledMacroPlugin else { return 0 }
             let locator = MacroPluginLocator(project: project, machine: machine)
             let report = await MacroPluginRepairer(locator: locator, probe: CapabilityProbe(runner: machine.runner)).repair()
-            if let reply = HookReply.macroRepair(report, event: event) { invocation.print(reply.json) }
+            if let reply = HookReply.macroRepair(report, cause: MacroCopyPhase.projects(in: project), event: event) { invocation.print(reply.json) }
         default:
             throw UsageError(description: "unknown hook '\(invocation.arguments.positional.first ?? "")'")
         }

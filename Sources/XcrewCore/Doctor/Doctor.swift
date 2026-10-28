@@ -10,6 +10,7 @@ public enum Doctor {
         ClaudeApprovedCheck(),
         UnsignedAgentsCheck(),
         MacroPluginsCheck(),
+        MacroCopyPhaseCheck(),
     ]
 
     public static func check(id: String) -> (any Check)? {

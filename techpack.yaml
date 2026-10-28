@@ -79,3 +79,7 @@ supplementaryDoctorChecks:
     name: Macro plugins answer
     section: xcrew
     command: mcs/checks/xcode-mcp--macro-plugins.sh
+  - type: shellScript
+    name: No in-place macro copy phase
+    section: xcrew
+    command: mcs/checks/xcode-mcp--macro-copy-phase.sh

@@ -34,7 +34,7 @@ import XcrewTestSupport
     }
 
     @Test func projectConfigCheck() async {
-        let project = Project.temporary()
+        let project = Project.temporary(containing: ["A.xcworkspace"])
         #expect(await ProjectConfigCheck().run(.fake(project: project)).status == .fail)
 
         project.write("enabledWorkflows:\n  - simulator\n", to: ".mobilebuildmcp/config.yaml")
@@ -75,5 +75,15 @@ import XcrewTestSupport
         let on = FakeRunner(responses: ["defaults read com.apple.dt.Xcode IDEAllowUnauthenticatedAgents": .init(status: 0, stdout: "1\n")])
         #expect(await UnsignedAgentsCheck().run(.fake(on)).status == .warn)
         #expect(await UnsignedAgentsCheck().run(.fake()).status == .pass)
+    }
+}
+
+@Suite struct StaleConfigTests {
+    @Test func aConfigPointingAtAContainerThatIsGoneWarns() async {
+        let project = Project.temporary(containing: ["Renamed.xcworkspace"])
+        project.write(ConfigRenderer.render(.init(container: "App.xcworkspace", testSimulator: "iPhone 17"), root: project.root), to: ".mobilebuildmcp/config.yaml")
+        let result = await ProjectConfigCheck().run(.fake(project: project))
+        #expect(result.status == .warn)
+        #expect(result.message.contains("App.xcworkspace") && result.message.contains("xcrew setup"))
     }
 }

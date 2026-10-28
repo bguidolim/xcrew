@@ -22,6 +22,13 @@ claude --plugin-dir .   # try your checkout in a real session
 
 [docs/architecture.md](docs/architecture.md) shows where things live and how to add a check, a command, a setup question or a mod behaviour.
 
+## Releasing
+
+Claude Code keeps people on a plugin's `version` until it changes, so every release bumps it:
+
+1. Set the new version in `Sources/XcrewCore/XcrewVersion.swift` and `.claude-plugin/plugin.json`, and turn the changelog's top entry into `## <version> — <date>`. `ManifestTests` fails until all three agree.
+2. Merge to `main` with CI green, then tag it: `git tag v<version> && git push --tags`.
+
 ## Reporting a problem
 
 Open an issue with the output of `xcrew doctor` in the affected project and your versions. Security issues go through [SECURITY.md](SECURITY.md) instead.

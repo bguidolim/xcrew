@@ -22,6 +22,10 @@ public enum CLI {
             print(usage)
             return 0
         }
+        if ["--version", "version"].contains(name) {
+            print("xcrew \(XcrewVersion.current)")
+            return 0
+        }
         guard let command = commands.first(where: { $0.name == name }) else {
             printError("unknown command '\(name)' (xcrew help)")
             return 64
@@ -41,6 +45,7 @@ public enum CLI {
     public static var usage: String {
         (["usage: xcrew <command> [options]", ""]
             + commands.flatMap(\.usage).map { "  \($0)" }
+            + ["  --version              print the version"]
             + ["", "The project is MCS_PROJECT_PATH, else CLAUDE_PROJECT_DIR, else the working directory."])
             .joined(separator: "\n")
     }

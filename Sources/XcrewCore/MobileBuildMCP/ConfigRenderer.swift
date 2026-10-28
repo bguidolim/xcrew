@@ -40,12 +40,21 @@ public enum ConfigRenderer {
 
     /// The simulator names a config's profiles reference, each once.
     public static func simulatorNames(in yaml: String) -> [String] {
-        let names = yaml.split(separator: "\n").compactMap { line -> String? in
+        values(of: ["simulatorName:"], in: yaml)
+    }
+
+    static func values(of keys: [String], in yaml: String) -> [String] {
+        let found = yaml.split(separator: "\n").compactMap { line -> String? in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("simulatorName:") else { return nil }
-            return unquoted(trimmed.dropFirst("simulatorName:".count).trimmingCharacters(in: .whitespaces))
+            guard let key = keys.first(where: trimmed.hasPrefix) else { return nil }
+            return unquoted(trimmed.dropFirst(key.count).trimmingCharacters(in: .whitespaces))
         }
-        return Array(Set(names)).sorted()
+        return Array(Set(found)).sorted()
+    }
+
+    /// The workspace and project paths a config's profiles point at, each once.
+    public static func containerPaths(in yaml: String) -> [String] {
+        values(of: ["workspacePath:", "projectPath:"], in: yaml)
     }
 
     /// A YAML single-quoted scalar, so names with `: `, ` #` or quotes stay intact.

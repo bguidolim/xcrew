@@ -11,7 +11,7 @@ All behaviour lives in a dependency-free Swift package. Everything else is a thi
 | Skills (`skills/`) | `xcrew setup`, `xcrew doctor`, which the plugin puts on Claude's `PATH` |
 | mcs (`techpack.yaml`) | `mcs/configure.sh` → `xcrew setup`; `mcs/checks/*.sh` → `xcrew doctor --check <id>` |
 
-`bin/xcrew` builds the package on first use, keyed by a hash of its sources, so a plugin update rebuilds once and Swift's ABI stability keeps a build working across Xcode updates.
+`bin/xcrew` builds the package on first use, keyed by a hash of its sources, so a plugin update rebuilds once and removes the build it replaces, and Swift's ABI stability keeps a build working across Xcode updates.
 
 ## The Swift package
 
@@ -19,12 +19,13 @@ All behaviour lives in a dependency-free Swift package. Everything else is a thi
 Sources/
   XcrewCore/            the behaviour, no I/O beyond what Machine allows
     System/             CommandRunning (the seam every process call goes through), Machine, Version
-    Project/            the project root and the files xcrew reads or writes there
+    Project/            the project root, the files xcrew reads or writes there, git exclusion
     MobileBuildMCP/     profile answers, config rendering and writing, the simulator catalog
     MacroPlugins/       locating, probing and repairing macro plugins
     Doctor/             the Check protocol, the registry, and one file per check in Checks/
     Hooks/              hook input and replies, the session briefing
     XcodeSkills/        finding and copying the skills Xcode ships
+    XcrewVersion.swift  the version, held equal to plugin.json and the changelog
   XcrewCLI/             one Command type per subcommand, and the dispatcher
   xcrew/                main.swift: builds the live Machine and calls CLI.run
 Tests/

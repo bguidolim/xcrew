@@ -51,6 +51,10 @@ struct SetupCommand: Command {
             if let backup { invocation.print("xcrew: kept the old config as \(backup.lastPathComponent)") }
             invocation.print("xcrew: wrote .mobilebuildmcp/config.yaml for \(answers.container) (unit tests on \(answers.testSimulator)); restart Claude Code so MobileBuildMCP reads it")
         }
+        // The config holds this Mac's absolute paths, so it never belongs in the repository.
+        if await GitExclusion.exclude(".mobilebuildmcp/", in: context.project, using: context.runner) == .added {
+            invocation.print("xcrew: kept .mobilebuildmcp/ out of git (in .git/info/exclude, which isn't committed)")
+        }
         return 0
     }
 }

@@ -69,6 +69,16 @@ import XcrewTestSupport
         #expect(run.errors.first?.contains("no iPhone simulator") == true)
     }
 
+    @Test func inAGitRepositoryTheConfigIsKeptOutOfGit() async throws {
+        let project = Project.temporary(containing: ["App.xcworkspace"])
+        project.write("", to: ".git/info/exclude")
+        var runner = simulators
+        runner.responses["git -C \(project.root.path) rev-parse --git-path info/exclude"] = .init(status: 0, stdout: ".git/info/exclude\n")
+        let run = await Run("setup", context: .fake(runner, project: project))
+        #expect(run.text.contains("kept .mobilebuildmcp/ out of git"))
+        #expect(try String(contentsOf: project.root.appending(path: ".git/info/exclude"), encoding: .utf8) == "/.mobilebuildmcp/\n")
+    }
+
     @Test func handWrittenConfigNeedsForce() async {
         let project = Project.temporary(containing: ["App.xcworkspace"])
         project.write("mine: true\n", to: ".mobilebuildmcp/config.yaml")
@@ -162,5 +172,15 @@ import XcrewTestSupport
         let run = await Run("xcode-skills")
         #expect(run.status == 64)
         #expect(run.errors.first?.contains("Xcode 27") == true)
+    }
+}
+
+@Suite struct VersionCommandTests {
+    @Test func printsTheVersion() async {
+        for flag in ["--version", "version"] {
+            let run = await Run(flag)
+            #expect(run.status == 0)
+            #expect(run.output == ["xcrew \(XcrewVersion.current)"])
+        }
     }
 }

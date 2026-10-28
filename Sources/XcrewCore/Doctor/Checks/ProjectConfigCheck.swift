@@ -12,6 +12,11 @@ struct ProjectConfigCheck: Check {
         if FileManager.default.fileExists(atPath: project.legacyConfigFolder.path) {
             return .warn(".xcodebuildmcp/ predates MobileBuildMCP 2.7.1 and is no longer read: delete it")
         }
+        let missing = ConfigRenderer.containerPaths(in: yaml).filter { !FileManager.default.fileExists(atPath: $0) }
+        if !missing.isEmpty {
+            let names = missing.map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
+            return .warn("the config points at \(names), which no longer exists (the project moved or was renamed): xcrew setup")
+        }
         if !yaml.contains("- xcode-ide") {
             return .warn("the xcode-ide tool group is off; another tool may have rewritten the config (xcrew setup --force restores it)")
         }

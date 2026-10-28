@@ -122,6 +122,12 @@ import XcrewCore
 
     // MARK: Plugin identity
 
+    @Test func oneVersionEverywhere() throws {
+        let version = XcrewVersion.current
+        #expect(try json(".claude-plugin/plugin.json")["version"] as? String == version)
+        #expect(try text("CHANGELOG.md").contains("\n## \(version)"))
+    }
+
     @Test func pluginAndMarketplaceAgree() async throws {
         #expect(try json(".claude-plugin/plugin.json")["name"] as? String == "xcrew")
         let plugins = try #require(try json(".claude-plugin/marketplace.json")["plugins"] as? [[String: Any]])

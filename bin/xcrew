@@ -16,6 +16,10 @@ if [ ! -x "$binary" ]; then
     mkdir -p "$cache/$key"
     cp "$cache/build/release/xcrew" "$binary.partial"
     mv "$binary.partial" "$binary"
+    # Earlier versions' builds are never run again.
+    for old in "$cache"/*/; do
+        case "$old" in "$cache/build/" | "$cache/$key/") ;; *) rm -rf "$old" ;; esac
+    done
 fi
 
 XCREW_ROOT=$root exec "$binary" "$@"

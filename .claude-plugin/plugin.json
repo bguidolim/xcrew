@@ -10,6 +10,7 @@
   "homepage": "https://github.com/breferrari/xcrew",
   "repository": "https://github.com/breferrari/xcrew",
   "license": "MIT",
+  "privacyPolicyUrl": "https://github.com/breferrari/xcrew#privacy",
   "keywords": [
     "ios",
     "xcode",

@@ -108,3 +108,16 @@ import Testing
         #expect(!run.output.contains("build"))
     }
 }
+
+extension ShimTests {
+    @Test func aRebuildRemovesTheBuildItReplaces() throws {
+        _ = try shim("help")
+        let first = try FileManager.default.contentsOfDirectory(atPath: cache.path).filter { $0 != "build" }
+        try write("print(3)\n", to: "Sources/xcrew/main.swift")
+        _ = try shim("help")
+        let second = try FileManager.default.contentsOfDirectory(atPath: cache.path).filter { $0 != "build" }
+        #expect(first.count == 1)
+        #expect(second.count == 1)
+        #expect(second != first)
+    }
+}

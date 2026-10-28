@@ -8,8 +8,6 @@
 
 [![ci](https://img.shields.io/github/actions/workflow/status/breferrari/xcrew/ci.yml?branch=main&style=for-the-badge&label=ci&color=3fb950&labelColor=0d1117)](https://github.com/breferrari/xcrew/actions/workflows/ci.yml) [![canary](https://img.shields.io/github/actions/workflow/status/breferrari/xcrew/canary.yml?branch=main&style=for-the-badge&label=canary&color=3fb950&labelColor=0d1117)](https://github.com/breferrari/xcrew/actions/workflows/canary.yml) [![license](https://img.shields.io/badge/license-MIT-e3b341?style=for-the-badge&labelColor=0d1117)](https://github.com/breferrari/xcrew/blob/main/LICENSE) [![swift](https://img.shields.io/badge/swift-6.2%2B-f85149?style=for-the-badge&logo=swift&logoColor=white&labelColor=0d1117)](Package.swift) [![xcode](https://img.shields.io/badge/xcode-27%2B-39c5cf?style=for-the-badge&logo=xcode&logoColor=white&labelColor=0d1117)](https://developer.apple.com/xcode/) [![macos](https://img.shields.io/badge/macos-26%2B-8b949e?style=for-the-badge&logo=apple&logoColor=white&labelColor=0d1117)](#quick-start)
 
-`/plugin` or `mcs` to install · `0` dependencies · `0` telemetry · one Swift CLI behind every hook, check and setup step
-
 </div>
 
 ---
@@ -73,7 +71,7 @@ ok    xcode-mcp/macro-plugins          6 answer
 | Skills | `/xcrew:setup`, and the `xcrew` reference Claude loads when something fails |
 | CLI | `xcrew setup`, `doctor`, `repair-macros`, `xcode-skills`; on Claude's `PATH` while the plugin is enabled |
 
-`xcrew xcode-skills` copies the agent skills your Xcode ships (SwiftUI, accessibility, device interaction) into the project, and picks up new ones after each Xcode update.
+`xcrew xcode-skills` copies the agent skills your Xcode ships (SwiftUI, accessibility, device interaction) into the project. It copies whatever the installed Xcode has, so run it again after an Xcode update to pick up new ones.
 
 ## Which server does what
 
@@ -90,7 +88,7 @@ The short version Claude gets at session start:
 
 ## Configuration
 
-- **Profiles.** `.mobilebuildmcp/config.yaml` holds a `unit` profile, plus `ui` and `app` when you name those schemes. Rerun `/xcrew:setup` or `xcrew setup --help` to change them. A config xcrew didn't write is left alone unless you pass `--force`, which keeps a backup.
+- **Profiles.** `.mobilebuildmcp/config.yaml` holds a `unit` profile, plus `ui` and `app` when you name those schemes. Rerun `/xcrew:setup` or `xcrew setup` to change them. A config Xcrew didn't write is left alone unless you pass `--force`, which keeps a backup. The config holds this Mac's absolute paths, so setup keeps it out of git through `.git/info/exclude`, which isn't committed either.
 - **Macro plugins named otherwise.** Set `XCREW_MACRO_PLUGINS=MyPlugin,OtherPlugin`. Set `XCREW_DERIVED_DATA` when Xcode's DerivedData isn't in its default place.
 - **Already registered the servers yourself?** Claude Code prefers your own `xcode` and `MobileBuildMCP` entries over the plugin's. Remove yours (`claude mcp remove <name>`) to use Xcrew's, or keep them: the hooks and the mod work with either.
 
@@ -104,6 +102,13 @@ Run `xcrew doctor` first; every line that isn't `ok` names its fix. Beyond that:
 | MobileBuildMCP has only simulator tools | No `.mobilebuildmcp/config.yaml` in the project | `/xcrew:setup`, then restart Claude Code |
 | `No such module 'UIKit'` from SourceKit | Claude Code's language server can't read Xcode projects | Ignore it; the Xcode MCP's diagnostics are the real ones |
 | A build keeps failing with "malformed response" after a repair | The plugin is broken, not just killed | Clean the build folder and rebuild |
+| A session starts with an `xcrew: building the CLI` error | The Swift toolchain is older than 6.2, or Xcode's command-line tools aren't selected | `xcode-select -p` should point into Xcode 27; `sudo xcode-select -s /Applications/Xcode.app` |
+| `project-config` warns the config points at a missing workspace | The project moved or the workspace was renamed | `/xcrew:setup` |
+
+## Updating and removing
+
+- **Update:** `claude plugin marketplace update xcrew && claude plugin update xcrew@xcrew`, or `mcs sync` with mcs. The CLI rebuilds once for the new version and removes the old build.
+- **Remove:** `/plugin uninstall xcrew@xcrew` (or remove the pack with mcs), then, if you like, `rm -rf .mobilebuildmcp` in each project, `rm -rf ~/Library/Caches/xcrew`, and `brew uninstall mobilebuildmcp`. To revoke Claude Code's access to Xcode, find its id in `xcrun mcp-server status` and run `sudo xcrun mcp-server deny <id>`; `sudo xcrun mcp-server disable` turns headless mode off.
 
 ## How it works
 

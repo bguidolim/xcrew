@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: lts/*
       - name: Use the newest Xcode on the runner
-        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+        run: sudo xcode-select -s "$(printf '%s\n' /Applications/Xcode_*.app | sort -V | tail -1)"
       - name: Install the newest Claude Code and MobileBuildMCP
         run: |
           npm install --global @anthropic-ai/claude-code@latest
@@ -45,7 +45,8 @@ jobs:
           (mobilebuildmcp mcp < /dev/null > /dev/null 2> "$log" &) ; sleep 5
           grep -E "Loaded project config|Registered [0-9]+ tools from workflows: .*xcode-ide" "$log" || { cat "$log"; exit 1; }
       - name: Sosumi answers
-        run: curl --fail --silent --show-error --max-time 20 -o /dev/null https://sosumi.ai/mcp -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"xcrew-canary","version":"0"}}}'
+        run: |
+          curl --fail --silent --show-error --max-time 20 -o /dev/null https://sosumi.ai/mcp -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"xcrew-canary","version":"0"}}}'
       - name: Open an issue when something broke
         if: failure()
         env:

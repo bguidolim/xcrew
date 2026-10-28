@@ -39,7 +39,7 @@ import Testing
         if executable { try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path) }
     }
 
-    func shim(_ arguments: String..., environment: [String: String] = [:]) throws -> (status: Int32, output: String, errors: String) {
+    func shim(_ arguments: String..., environment: [String: String] = [:]) async throws -> (status: Int32, output: String, errors: String) {
         let process = Process()
         process.executableURL = root.appending(path: "bin/xcrew")
         process.arguments = arguments
@@ -51,23 +51,31 @@ import Testing
         let output = Pipe(), errors = Pipe()
         process.standardOutput = output
         process.standardError = errors
-        try process.run()
-        process.waitUntilExit()
+        try await Self.runToEnd(process)
         let read = { (pipe: Pipe) in String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self) }
         return (process.terminationStatus, read(output), read(errors))
     }
 
     /// The path with every symlink resolved, as `pwd -P` prints it (Foundation drops `/private`).
-    func physicalPath(_ url: URL) throws -> String {
+    func physicalPath(_ url: URL) async throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/pwd")
         process.arguments = ["-P"]
         process.currentDirectoryURL = url
         let output = Pipe()
         process.standardOutput = output
-        try process.run()
-        process.waitUntilExit()
+        try await Self.runToEnd(process)
         return String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .newlines)
+    }
+
+    /// Awaits a process instead of blocking a thread with `waitUntilExit`: every suite shares one
+    /// test process, and a blocked thread pool starves the tests that measure time.
+    static func runToEnd(_ process: Process) async throws {
+        let exit = AsyncStream<Void> { continuation in
+            process.terminationHandler = { _ in continuation.finish() }
+        }
+        try process.run()
+        for await _ in exit {}
     }
 
     var builds: Int {
@@ -75,46 +83,46 @@ import Testing
     }
 
     @Test func buildsOnFirstUseAndRunsTheBinary() async throws {
-        let run = try shim("doctor", "--list")
+        let run = try await shim("doctor", "--list")
         #expect(run.status == 0)
-        #expect(run.output == "ran doctor --list root=\(try physicalPath(root))\n")
+        #expect(run.output == "ran doctor --list root=\(try await physicalPath(root))\n")
         #expect(builds == 1)
     }
 
     @Test func reusesTheBuild() async throws {
-        _ = try shim("help")
-        _ = try shim("help")
+        _ = try await shim("help")
+        _ = try await shim("help")
         #expect(builds == 1)
     }
 
     @Test func rebuildsWhenTheSourcesChange() async throws {
-        _ = try shim("help")
+        _ = try await shim("help")
         try write("print(2)\n", to: "Sources/xcrew/main.swift")
-        _ = try shim("help")
+        _ = try await shim("help")
         #expect(builds == 2)
     }
 
     @Test func aFailedBuildFailsLoudlyAndCachesNothing() async throws {
-        let failed = try shim("help", environment: ["FAIL_BUILD": "1"])
+        let failed = try await shim("help", environment: ["FAIL_BUILD": "1"])
         #expect(failed.status != 0)
         #expect(failed.errors.contains("compile error"))
-        _ = try shim("help")
+        _ = try await shim("help")
         #expect(builds == 2)
     }
 
     @Test func buildOutputStaysOffStandardOutput() async throws {
         // Hooks print JSON on stdout; anything else there breaks the reply.
-        let run = try shim("help")
+        let run = try await shim("help")
         #expect(!run.output.contains("build"))
     }
 }
 
 extension ShimTests {
-    @Test func aRebuildRemovesTheBuildItReplaces() throws {
-        _ = try shim("help")
+    @Test func aRebuildRemovesTheBuildItReplaces() async throws {
+        _ = try await shim("help")
         let first = try FileManager.default.contentsOfDirectory(atPath: cache.path).filter { $0 != "build" }
         try write("print(3)\n", to: "Sources/xcrew/main.swift")
-        _ = try shim("help")
+        _ = try await shim("help")
         let second = try FileManager.default.contentsOfDirectory(atPath: cache.path).filter { $0 != "build" }
         #expect(first.count == 1)
         #expect(second.count == 1)

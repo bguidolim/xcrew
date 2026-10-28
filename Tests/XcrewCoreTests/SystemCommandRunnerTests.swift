@@ -17,11 +17,15 @@ import Testing
     }
 
     @Test func aProgramThatOutlivesItsTimeoutIsStopped() async {
+        // A run that waited for the child would take its full 8 seconds; stopping it at the
+        // timeout returns far sooner, with seconds to spare for a loaded CI runner.
+        let duration = "8.\(Int.random(in: 100_000...999_999))"
         let clock = ContinuousClock()
         let started = clock.now
-        let result = await runner.run(["/bin/sleep", "5"], stdin: nil, timeout: .milliseconds(200))
+        let result = await runner.run(["/bin/sleep", duration], stdin: nil, timeout: .milliseconds(200))
         #expect(result.status == 124)
-        #expect(clock.now - started < .seconds(2))
+        #expect(clock.now - started < .seconds(6), "waited for the child instead of stopping it")
+        #expect(await runner.run("/usr/bin/pgrep", "-f", "sleep \(duration)").status == 1, "the child is still running")
     }
 
     @Test func largeOutputDoesNotDeadlock() async {

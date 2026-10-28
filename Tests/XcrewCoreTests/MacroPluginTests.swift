@@ -20,15 +20,15 @@ import XcrewTestSupport
     }
 
     @Test func healthyPluginsNeedNothing() async throws {
-        try StubPlugin.build(at: products.appending(path: "GoodMacros"), healthy: true)
+        try await StubPlugin.build(at: products.appending(path: "GoodMacros"), healthy: true)
         #expect(await repairer().deadPlugins().isEmpty)
         #expect(await repairer().repair().isEmpty)
     }
 
     @Test func findsDeadPluginsAndReportsTheOnesACopyCannotFix() async throws {
-        try StubPlugin.build(at: products.appending(path: "GoodMacros"), healthy: true)
+        try await StubPlugin.build(at: products.appending(path: "GoodMacros"), healthy: true)
         let dead = products.appending(path: "BadMacrosPlugin")
-        try StubPlugin.build(at: dead, healthy: false)
+        try await StubPlugin.build(at: dead, healthy: false)
         let inode = try FileManager.default.attributesOfItem(atPath: dead.path)[.systemFileNumber] as? Int
 
         #expect(await repairer().deadPlugins().map(\.label) == ["Debug-iphonesimulator/BadMacrosPlugin"])
@@ -40,7 +40,7 @@ import XcrewTestSupport
     }
 
     @Test func probesOnlyMacroNamedMachOBinaries() async throws {
-        try StubPlugin.build(at: products.appending(path: "Helper"), healthy: false)
+        try await StubPlugin.build(at: products.appending(path: "Helper"), healthy: false)
         let script = products.appending(path: "ScriptMacros")
         try "#!/bin/sh\nexit 1\n".write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
@@ -48,14 +48,14 @@ import XcrewTestSupport
     }
 
     @Test func extraNamesAreProbedToo() async throws {
-        try StubPlugin.build(at: products.appending(path: "Helper"), healthy: false)
+        try await StubPlugin.build(at: products.appending(path: "Helper"), healthy: false)
         let machine = Machine(environment: ["XCREW_MACRO_PLUGINS": "Helper"], home: context.machine.home, runner: FakeRunner())
         #expect(await repairer(machine).deadPlugins().count == 1)
     }
 
     @Test func ignoresOtherProjectsAndTestRunFiles() async throws {
         let other = project.root.appending(path: "home/Library/Developer/Xcode/DerivedData/Other-xyz/Build/Products/Debug")
-        try StubPlugin.build(at: other.appending(path: "BadMacros"), healthy: false)
+        try await StubPlugin.build(at: other.appending(path: "BadMacros"), healthy: false)
         try FileManager.default.createDirectory(at: products, withIntermediateDirectories: true)
         try Data().write(to: products.deletingLastPathComponent().appending(path: "App.xctestrun"))
         #expect(await repairer().deadPlugins().isEmpty)
@@ -71,11 +71,11 @@ import XcrewTestSupport
     @Test func warnsAboutDeadPluginsAndNamesTheRepair() async throws {
         let project = Project.temporary(containing: ["App.xcworkspace"])
         let products = project.root.appending(path: "home/Library/Developer/Xcode/DerivedData/App-1/Build/Products/Debug")
-        try StubPlugin.build(at: products.appending(path: "GoodMacros"), healthy: true)
+        try await StubPlugin.build(at: products.appending(path: "GoodMacros"), healthy: true)
         let context = CheckContext(project: project, machine: Machine(environment: [:], home: project.root.appending(path: "home"), runner: SystemCommandRunner()))
         #expect(await MacroPluginsCheck().run(context) == .pass("1 answer"))
 
-        try StubPlugin.build(at: products.appending(path: "BadMacros"), healthy: false)
+        try await StubPlugin.build(at: products.appending(path: "BadMacros"), healthy: false)
         let result = await MacroPluginsCheck().run(context)
         #expect(result.status == .warn)
         #expect(result.message.contains("Debug/BadMacros") && result.message.contains("xcrew repair-macros"))

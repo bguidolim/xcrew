@@ -65,7 +65,7 @@ class Canvas:
 
 def backdrop(c, width, height):
     """Shared definitions. The background stays transparent, so the image sits on GitHub's own page colour."""
-    c.add('<defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feGaussianBlur in="SourceAlpha" stdDeviation="10"/><feOffset dy="6"/>'
+    c.add('<defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="10"/><feOffset dy="6"/>'
           '<feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
           '<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#6e7681"/></marker></defs>')
 

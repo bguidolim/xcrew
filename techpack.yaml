@@ -1,6 +1,6 @@
 schemaVersion: 1
 identifier: xcrew
-displayName: xcrew
+displayName: Xcrew
 description: Apple's Xcode MCP, Sentry's MobileBuildMCP and Sosumi set up to work together in an iOS project
 minMCSVersion: "2026.10.25"
 

@@ -1,4 +1,4 @@
-# xcrew
+# Xcrew
 
 A Claude Code plugin (with a mod) and an mcs techpack that set up Apple's Xcode MCP, MobileBuildMCP and Sosumi for iOS projects. All behaviour is one dependency-free Swift package; the plugin hooks, the mod, the skills and mcs call its CLI through `bin/xcrew`. Layout and extension points: [docs/architecture.md](docs/architecture.md). Evidence behind the choices: [docs/findings.md](docs/findings.md).
 

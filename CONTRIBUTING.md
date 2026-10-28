@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping. xcrew is small on purpose: one Swift package does the work, and every other file is a thin way to reach it.
+Thanks for helping. Xcrew is small on purpose: one Swift package does the work, and every other file is a thin way to reach it.
 
 ## Set up
 

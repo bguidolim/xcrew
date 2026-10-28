@@ -1,20 +1,25 @@
-# xcrew
+<div align="center">
 
-**Apple's Xcode MCP, Sentry's MobileBuildMCP and Sosumi, set up to work together for iOS projects in Claude Code.**
+# Xcrew
 
-[![CI](https://github.com/breferrari/xcrew/actions/workflows/ci.yml/badge.svg)](https://github.com/breferrari/xcrew/actions/workflows/ci.yml)
-[![Canary](https://github.com/breferrari/xcrew/actions/workflows/canary.yml/badge.svg)](https://github.com/breferrari/xcrew/actions/workflows/canary.yml)
-![macOS 26+](https://img.shields.io/badge/macOS-26%2B-blue)
-![Xcode 27+](https://img.shields.io/badge/Xcode-27%2B-blue)
-![Swift 6.2+](https://img.shields.io/badge/Swift-6.2%2B-orange)
-[![MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+### The crew that gets **Claude Code** working with **Xcode**.
 
-Each of the three servers is good at different things, and on their own they overlap, misroute and trip over each other. xcrew installs all three, tells Claude which one to use for what, and fixes the failures you'd otherwise hit by hand:
+**Apple's Xcode MCP, Sentry's MobileBuildMCP and Sosumi, set up to work together for iOS projects.**
+
+[![ci](https://img.shields.io/github/actions/workflow/status/breferrari/xcrew/ci.yml?branch=main&style=for-the-badge&label=ci&color=3fb950&labelColor=0d1117)](https://github.com/breferrari/xcrew/actions/workflows/ci.yml) [![canary](https://img.shields.io/github/actions/workflow/status/breferrari/xcrew/canary.yml?branch=main&style=for-the-badge&label=canary&color=3fb950&labelColor=0d1117)](https://github.com/breferrari/xcrew/actions/workflows/canary.yml) [![license](https://img.shields.io/badge/license-MIT-e3b341?style=for-the-badge&labelColor=0d1117)](https://github.com/breferrari/xcrew/blob/main/LICENSE) [![swift](https://img.shields.io/badge/swift-6.2%2B-f85149?style=for-the-badge&logo=swift&logoColor=white&labelColor=0d1117)](Package.swift) [![xcode](https://img.shields.io/badge/xcode-27%2B-39c5cf?style=for-the-badge&logo=xcode&logoColor=white&labelColor=0d1117)](https://developer.apple.com/xcode/) [![macos](https://img.shields.io/badge/macos-26%2B-8b949e?style=for-the-badge&logo=apple&logoColor=white&labelColor=0d1117)](#quick-start)
+
+`/plugin` or `mcs` to install · `0` dependencies · `0` telemetry · one Swift CLI behind every hook, check and setup step
+
+</div>
+
+---
+
+Each of the three servers is good at different things, and on their own they overlap, misroute and trip over each other. Xcrew installs all three, tells Claude which one to use for what, and fixes the failures you'd otherwise hit by hand:
 
 - **Routing.** Every session in an Apple-platform project starts knowing which server builds, which previews, which knows the docs, and which tool never to touch.
-- **Macro-plugin repair.** When Xcode rewrites a Swift macro plugin in place, macOS kills it and the build fails with *"produced malformed response"*. xcrew re-copies the plugin and retries the build before Claude sees the failure.
+- **Macro-plugin repair.** When Xcode rewrites a Swift macro plugin in place, macOS kills it and the build fails with *"produced malformed response"*. Xcrew re-copies the plugin and retries the build before Claude sees the failure.
 - **Build and test timing.** A live status line while a build or test runs, and a toast when it ends: `✓ build_sim · 1:12 (avg 1:05)`.
-- **Project-file guard.** The Xcode MCP's `XcodeWrite` re-saves the whole `.pbxproj`; xcrew refuses it and points Claude at its own Write tool.
+- **Project-file guard.** The Xcode MCP's `XcodeWrite` re-saves the whole `.pbxproj`; Xcrew refuses it and points Claude at its own Write tool.
 - **Setup and doctor.** `/xcrew:setup` writes MobileBuildMCP's per-project profiles from your schemes and installed simulators; `xcrew doctor` checks the Mac and the project and prints the fix for anything wrong.
 
 ## Quick start
@@ -35,7 +40,7 @@ brew install getsentry/xcodebuildmcp/mobilebuildmcp
 sudo xcrun mcp-server enable
 ```
 
-Restart Claude Code in your project and run `/xcrew:setup`. The first call builds xcrew's small Swift CLI, about ten seconds, once per version.
+Restart Claude Code in your project and run `/xcrew:setup`. The first call builds Xcrew's small Swift CLI, about ten seconds, once per version.
 
 **With [mcs](https://github.com/mcs-cli/mcs)**, which installs the Homebrew package and the plugin together and asks the setup questions:
 
@@ -87,7 +92,7 @@ The short version Claude gets at session start:
 
 - **Profiles.** `.mobilebuildmcp/config.yaml` holds a `unit` profile, plus `ui` and `app` when you name those schemes. Rerun `/xcrew:setup` or `xcrew setup --help` to change them. A config xcrew didn't write is left alone unless you pass `--force`, which keeps a backup.
 - **Macro plugins named otherwise.** Set `XCREW_MACRO_PLUGINS=MyPlugin,OtherPlugin`. Set `XCREW_DERIVED_DATA` when Xcode's DerivedData isn't in its default place.
-- **Already registered the servers yourself?** Claude Code prefers your own `xcode` and `MobileBuildMCP` entries over the plugin's. Remove yours (`claude mcp remove <name>`) to use xcrew's, or keep them: the hooks and the mod work with either.
+- **Already registered the servers yourself?** Claude Code prefers your own `xcode` and `MobileBuildMCP` entries over the plugin's. Remove yours (`claude mcp remove <name>`) to use Xcrew's, or keep them: the hooks and the mod work with either.
 
 ## Troubleshooting
 
@@ -129,7 +134,7 @@ claude --plugin-dir .          # try your checkout in a session
 
 ## Privacy
 
-xcrew sends nothing anywhere: it has no telemetry, and it turns MobileBuildMCP's off. Sosumi is a third-party documentation service that receives your documentation searches; see [sosumi.ai](https://sosumi.ai).
+Xcrew sends nothing anywhere: it has no telemetry, and it turns MobileBuildMCP's off. Sosumi is a third-party documentation service that receives your documentation searches; see [sosumi.ai](https://sosumi.ai).
 
 ## License
 

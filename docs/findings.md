@@ -1,6 +1,6 @@
 # Findings
 
-What xcrew's choices rest on. Measured in October 2026 on one Mac (macOS 26, Xcode 27.1, MobileBuildMCP 2.7.1) against a large modular Tuist app; versions move, so treat numbers as that snapshot. `xcrew doctor` checks the parts that can change under you.
+What Xcrew's choices rest on. Measured in October 2026 on one Mac (macOS 26, Xcode 27.1, MobileBuildMCP 2.7.1) against a large modular Tuist app; versions move, so treat numbers as that snapshot. `xcrew doctor` checks the parts that can change under you.
 
 ## The two servers
 
@@ -12,7 +12,7 @@ What xcrew's choices rest on. Measured in October 2026 on one Mac (macOS 26, Xco
 | Unique strengths | Per-file diagnostics, SwiftUI previews with variants, code snippets in a module, Organizer crash and performance logs, string catalogs, physical devices | Test filtering, coverage reports, simulator control and environment, UI automation by accessibility tree, LLDB |
 | Settings | None of its own; Xcode decides | `.mobilebuildmcp/config.yaml`: tool groups, profiles, debugger backend |
 
-They overlap on build, test and run. xcrew sends those to MobileBuildMCP because its DerivedData never collides with Xcode's, its profiles survive restarts, and it filters tests. The Xcode MCP keeps what only it can do.
+They overlap on build, test and run. Xcrew sends those to MobileBuildMCP because its DerivedData never collides with Xcode's, its profiles survive restarts, and it filters tests. The Xcode MCP keeps what only it can do.
 
 ## Behaviours that shaped xcrew
 
@@ -38,7 +38,7 @@ They overlap on build, test and run. xcrew sends those to MobileBuildMCP because
 | --- | --- |
 | MobileBuildMCP's `incrementalBuildsEnabled` | Slower than plain rebuilds in testing, downloads and runs `xcodemake`, and writes a large `Makefile` into the project root |
 | Building through the Xcode MCP by default | Shares and fights Xcode's DerivedData, and follows the person's active scheme |
-| Python for xcrew's logic | Apple's Python is 3.9 and contributors to an iOS tool write Swift; a cached Swift binary also starts faster (about 0.02 s against 0.05 s) |
+| Python for Xcrew's logic | Apple's Python is 3.9 and contributors to an iOS tool write Swift; a cached Swift binary also starts faster (about 0.02 s against 0.05 s) |
 | Swift scripts | Compiled on every run, about 0.65 s per call, too slow for hooks |
 | A shell installer as a third install path | The plugin already installs without mcs, and a third path would drift |
 | `swift-subprocess` | A package dependency means a network fetch on every user's first build |

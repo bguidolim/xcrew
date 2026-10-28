@@ -46,6 +46,9 @@ public enum ConfigWriter {
 
     /// What the marker holds: a hash of the config exactly as xcrew wrote it.
     static func fingerprint(_ content: Data) -> Data {
-        Data(SHA256.hash(data: content).map { String(format: "%02x", $0) }.joined().utf8)
+        Data(SHA256.hash(data: content).map { byte in
+            let hex = String(byte, radix: 16)
+            return hex.count == 1 ? "0" + hex : hex
+        }.joined().utf8)
     }
 }

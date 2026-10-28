@@ -77,7 +77,7 @@ ok    xcode-mcp/macro-copy-phase       none
 While a build or test runs, the status line counts it, and a toast reports how it went and how it compares with recent runs of the same tool:
 
 ```
-xcrew: build_sim running · 0:41
+build_sim running · 0:41
 ✓ build_sim · 1:12 (avg 1:05)
 ✗ test_sim · 2:03 (avg 1:58)
 ```

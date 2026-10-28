@@ -1,0 +1,90 @@
+# Mod ideas
+
+A working list of what Xcrew's mod could show or do. Nothing here is decided; entries move to the roadmap once someone picks them up. Dated October 2026, against Claude Code 2.1.312.
+
+## What the mod shows today
+
+| Where | Example | When |
+| --- | --- | --- |
+| Status line | `build_sim running · 0:41` | While a build, test or app run is going, updated every second |
+| Toast | `✓ build_sim · 1:12 (avg 1:05)` · `✗ test_sim · 2:03` | When one ends; the average covers the last 10 runs of that tool |
+| Toast | `repaired Debug-iphonesimulator/SwiftMockKitMacros (index build) and retried BuildProject` | After a macro-plugin repair |
+| Denied tool call | `XcodeWrite re-saves the whole generated project file…` | `XcodeWrite` in a Tuist or XcodeGen project |
+| Hook spinner | `xcrew: preparing Xcode tooling` · `xcrew: checking Xcode macro plugins` | Session start; after a build failure with the plugin-kill message |
+
+## What a mod can reach
+
+From the [mods reference](https://code.claude.com/docs/en/plugins/mods/reference.md) and the [interface gallery](https://code.claude.com/docs/en/plugins/mods/gallery.md), the parts that matter for an Xcode tool:
+
+- **Places to draw:** a band above the prompt (`AbovePrompt`), a pane beside the transcript (a sidebar in a wide fullscreen terminal, otherwise above the prompt), the status line, toasts, the spinner's word and suffix, the hint under the prompt, and Claude Code's own rows: a tool call (`ToolUse`, `ToolResult`, `ToolGroup`), a question dialog, a message.
+- **Elements:** text, Markdown, code with syntax colours or a diff, buttons with hotkeys, text fields, pickers, a grid of coloured cells (`Raster`, for sparklines and heat maps), SVG in Desktop and VS Code, images in kitty, Ghostty and iTerm2.
+- **Events:** every tool call before and after it runs (`tool.call`), each tool's description as Claude first reads it (`tool.describe`), turns, session start and end, prompt submission, the system prompt's sections.
+- **Actions:** register `/commands` that run instantly with no Claude turn; register tools Claude can call; run or stream processes (`$.process.spawn` streams output); read files; keep data across sessions (`$.store`); timers; desktop notifications (`$.ui.notify`); sounds; ask the person a question mid-call (`$.ui.ask`); call a model (`$.model.complete`, `classify`).
+- **Limits:** a hook's own work gets 10 s per event; `$.process.run` up to 10 min; redraws are throttled to 10 a second (30 in the terminal). Drawing works in the terminal, Desktop and VS Code, not in `claude -p` or cloud sessions. Some elements are terminal-only, others Desktop-only.
+
+## What people build
+
+From Anthropic's [sample mods](https://github.com/anthropics/claude-code-playground/tree/main/claude-code/mods) and community collections ([hamzafer/claude-code-mods](https://github.com/hamzafer/claude-code-mods), [awesome-claude-code-mods](https://github.com/karanb192/awesome-claude-code-mods)):
+
+- **One-line bands above the prompt** are the most common shape: context fill (`token-weather`, `context-bar`), plan usage (`usage-meter`), one line per running subagent or background shell (`agent-radar`), what needs you (`glance`).
+- **Live work as a line, the result as a toast:** `review-watch` shows one line per running code review, then lists the findings in a toast when it ends.
+- **Guards that explain instead of refusing:** `blast-radius` holds `rm -rf` or a force push and shows what it would change, with proceed and cancel buttons; `merge-gate` holds `gh pr merge` until CI is green.
+- **Panes for things worth a second look:** `mission-control` (agents, tool calls, touched files), `filetree` (git status, highlighting files as Claude touches them), `replay-theater` (step through the last turn's edits as diffs).
+- **Conventions they share:** each mod does one visible thing; it hides when idle; it's opt-in; colour carries meaning (reads, writes, done); it states any token cost and terminal requirement up front.
+- **Gap:** none of these watches builds or tests directly. The closest are the CI gate and the review watcher.
+
+## Ideas
+
+Effort: **S** a day or less, **M** a few days, **L** more, or needs research first.
+
+### Build and test feedback
+
+| Idea | Looks like | Surface | Data | Effort | Open questions |
+| --- | --- | --- | --- | --- | --- |
+| Results in the toast | `✗ test_sim · 2:03 · 3 of 412 failed` · `✗ build_sim · 0:48 · 2 errors · FooView.swift:12` | Toast | The tool's result text | M | Capture real outputs from MobileBuildMCP and the Xcode MCP first; parse defensively, fall back to today's toast |
+| What's building | `build_sim · AVDPortfolio · iPhone 16 · 0:41` | Status line | The call's input, else the active profile in `.mobilebuildmcp/config.yaml` | S | The Xcode MCP uses the active scheme; read it with `XcodeListSchemes`, or leave it out |
+| Build band | `last ✓ build 1:12 ▁▂▂▃▂ · ✗ tests 3 failed · 1 plugin repaired` | Band | `$.store` history | M | Hide when idle? The hamzafer conventions say yes, after a few minutes |
+| Live progress | `build_sim · compiling 412/1,280 · 0:41` | Status line or band | Stream the build's log while it runs | L | Does MobileBuildMCP send MCP progress, or write a log the mod can follow? The `ToolProgress` render site only exposes `kind` |
+| Slow-run alert | `⚠ build_sim · 3:40, 2× its usual 1:50` | Toast | `$.store` history | S | Threshold: 1.5× the average, and only after 5 runs |
+| Done while you were away | macOS notification: `Tests finished · ✓ 412 passed · 4:10` | `$.ui.notify` | Duration | S | Only past 60 s; does `notify` respect Focus modes? |
+| Failure pane | Failing tests with their messages, the first compile errors as code | Pane, `/xcrew failures` | Result text | M | Same parsing as results in the toast |
+| Restyled tool rows | A build call's row in the transcript shows `✓ 1:12 · AVDPortfolio` instead of raw output | `ToolResult` render site | Result | M | Must keep the raw output reachable; check how `ToolResult` rewriting behaves in VS Code |
+
+### Health and setup
+
+| Idea | Looks like | Surface | Data | Effort | Open questions |
+| --- | --- | --- | --- | --- | --- |
+| Doctor pane | Each check as a row with its fix, a button per fix that can run safely | Pane, `/xcrew doctor` | `xcrew doctor` | M | Which fixes are safe to run from a button (none that need sudo) |
+| Setup form | Pickers for workspace, scheme, simulator, filled from `list_schemes` and `simctl` | Pane, `/xcrew setup` | MobileBuildMCP, `simctl` | M | Replaces the skill's question-and-answer flow; keep the skill for `claude -p` |
+| Problem band | `⚠ Xcode MCP not approved · run /xcrew doctor` | Band | Session-start checks | S | Show once per session, dismissible |
+| Macro cause hint | `Plugins keep dying: TRMacros was generated by Tuist < 4.203` | Toast after a repair | `MacroCopyPhase` | S | The hook already says this to Claude; the person doesn't see it |
+
+### Simulator and app
+
+| Idea | Looks like | Surface | Data | Effort | Open questions |
+| --- | --- | --- | --- | --- | --- |
+| Simulator screenshot | The latest `screenshot` result as a picture | Pane | MobileBuildMCP's screenshot path | M | `Image` only draws in kitty, Ghostty, iTerm2; others get the alt text |
+| Booted simulator | `iPhone 16 · iOS 26.5 · booted` | Status line | `simctl list --json` on a timer | S | Poll interval and its cost |
+| UI-automation trail | Each tap and swipe Claude makes, with the element it hit | Pane | `tool.call` on the UI-automation tools | M | Is it useful, or noise? |
+
+### Steering Claude
+
+| Idea | Looks like | Surface | Data | Effort | Open questions |
+| --- | --- | --- | --- | --- | --- |
+| Tool descriptions that route | `XcodeWrite`'s description says to use Write in generated projects; build tools say which server to prefer | `tool.describe` | — | S | Could replace part of the session briefing, so routing costs no context until a tool loads |
+| Explain-don't-refuse guard | `XcodeWrite` held with "This rewrites the generated project. Use Write instead? [Write it] [Cancel]" | `$.ui.ask` | — | S | Whether a held call beats a plain denial |
+
+### Commands
+
+| Idea | Looks like | Surface | Effort |
+| --- | --- | --- | --- |
+| `/xcrew` | One command with subcommands, answered instantly with no Claude turn: `doctor`, `setup`, `history`, `repair` | `$.command.register` | S |
+| `/xcrew history` | Durations per tool and scheme, as a table with sparklines | Pane | M |
+
+## Ground rules for anything that ships
+
+- One visible thing per surface, hidden when idle, and quiet by default; nothing that interrupts unless it's worth it.
+- Degrade per surface: a terminal-only element needs a fallback in Desktop and VS Code, and nothing draws under `claude -p`.
+- Bookkeeping is best-effort and never fails a tool call (already true of the timing hook).
+- No token cost unless it's stated; anything that adds text to Claude's context says how much.
+- Parsing of a server's output is tested against captured real outputs and falls back to today's display when it doesn't match.

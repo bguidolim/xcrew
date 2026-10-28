@@ -22,6 +22,7 @@ struct HookCommand: Command {
                 invocation.print(HookReply(event: event, context: text).json)
             }
         case "repair-macros":
+            guard event.mentionsKilledMacroPlugin else { return 0 }
             let locator = MacroPluginLocator(project: project, machine: machine)
             let report = await MacroPluginRepairer(locator: locator, probe: CapabilityProbe(runner: machine.runner)).repair()
             if let reply = HookReply.macroRepair(report, event: event) { invocation.print(reply.json) }

@@ -77,6 +77,12 @@ import XcrewCore
         #expect(Set(alternation.split(separator: "|").map(String.init)) == Set(tools))
     }
 
+    @Test func modAndHookLookForTheSameFailure() throws {
+        let source = try text("hooks/mod/repair.ts")
+        let constant = try #require(source.firstMatch(of: /MACRO_PLUGIN_KILLED = '([^']+)'/)).1
+        #expect(String(constant) == HookEvent.killedMacroPluginSignature)
+    }
+
     // MARK: MCP servers
 
     @Test func pluginShipsTheThreeServers() async throws {

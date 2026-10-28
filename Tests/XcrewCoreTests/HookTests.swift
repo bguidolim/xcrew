@@ -40,3 +40,23 @@ import XcrewTestSupport
         #expect(project.isApplePlatformProject)
     }
 }
+
+@Suite struct MacroFailureSignatureTests {
+    let killed = "External macro implementation type 'M.M' could not be found; plugin for module 'M' produced malformed response"
+
+    @Test func aFailedBuildWithTheSignatureCounts() {
+        let event = HookEvent(json: Data(#"{"hook_event_name":"PostToolUseFailure","error":"\#(killed)"}"#.utf8))
+        #expect(event.mentionsKilledMacroPlugin)
+    }
+
+    @Test func aBuildLogWithTheSignatureCounts() {
+        let event = HookEvent(json: Data(#"{"hook_event_name":"PostToolUse","tool_response":{"content":[{"type":"text","text":"error: \#(killed)"}]}}"#.utf8))
+        #expect(event.mentionsKilledMacroPlugin)
+    }
+
+    @Test func anyOtherFailureDoesNot() {
+        let event = HookEvent(json: Data(#"{"hook_event_name":"PostToolUseFailure","error":"error: cannot find 'foo' in scope"}"#.utf8))
+        #expect(!event.mentionsKilledMacroPlugin)
+        #expect(!HookEvent(json: Data()).mentionsKilledMacroPlugin)
+    }
+}

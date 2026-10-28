@@ -132,3 +132,12 @@ import XcrewTestSupport
         #expect(MacroPlugin(path: URL(fileURLWithPath: "\(root)/Index.noindex/Build/Products/Debug-iphonesimulator/AMacros")).label == "Debug-iphonesimulator/AMacros (index build)")
     }
 }
+
+@Suite struct NoMacrosTests {
+    @Test func aProjectWithoutMacroPluginsSkipsTheCheck() async throws {
+        let project = Project.temporary(containing: ["App.xcworkspace"])
+        let products = project.root.appending(path: "home/Library/Developer/Xcode/DerivedData/App-1/Build/Products/Debug")
+        try FileManager.default.createDirectory(at: products, withIntermediateDirectories: true)
+        #expect(await MacroPluginsCheck().run(.fake(project: project)) == .skip("this project builds no macro plugins"))
+    }
+}

@@ -200,3 +200,13 @@ import XcrewTestSupport
         #expect(!run.text.contains("/xcrew:setup adds"))
     }
 }
+
+@Suite struct RepairHookGateTests {
+    @Test func anOrdinaryBuildFailureLeavesThePluginsAlone() async {
+        // A locator pointed at a folder that doesn't exist would still be harmless; what matters is
+        // that the hook answers nothing and probes nothing for a failure that isn't the plugin kill.
+        let run = await Run("hook", "repair-macros", stdin: #"{"hook_event_name":"PostToolUseFailure","error":"error: cannot find 'foo' in scope"}"#)
+        #expect(run.status == 0)
+        #expect(run.output.isEmpty)
+    }
+}

@@ -16,6 +16,17 @@ ignore:
   - SECURITY.md
   - CHANGELOG.md
   - CLAUDE.md
+  # The plugin component installs these; mcs doesn't copy them.
+  - Package.swift
+  - Sources/
+  - bin/
+  - hooks/
+  - skills/
+  - context/
+  - types/
+  - tsconfig.json
+  # Run by supplementaryDoctorChecks.
+  - mcs/checks/
 
 prompts:
   - key: PROJECT

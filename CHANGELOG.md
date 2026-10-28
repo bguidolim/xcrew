@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-10-28
 
 - Plugin with MobileBuildMCP, the Xcode MCP and Sosumi; a session briefing with the routing rules.
 - Mod: macro-plugin repair with retry, build and test timing, the `XcodeWrite` guard.

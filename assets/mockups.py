@@ -77,8 +77,9 @@ def frame(width, height, title):
     c.add(f'<g filter="url(#shadow)"><rect x="{x0}" y="{y0}" width="{w}" height="{h}" rx="8" fill="{C["term"]}" stroke="{C["border"]}"/></g>')
     c.add(f'<path d="M{x0 + 0.5} {y0 + 38} v-30 a7.5 7.5 0 0 1 7.5 -7.5 h{w - 16} a7.5 7.5 0 0 1 7.5 7.5 v30 z" fill="{C["bar"]}"/>')
     c.add(f'<line x1="{x0}" y1="{y0 + 38}" x2="{x0 + w}" y2="{y0 + 38}" stroke="{C["border"]}"/>')
-    for i in range(3):
-        c.add(f'<circle cx="{x0 + 20 + i * 18}" cy="{y0 + 19}" r="5" fill="{C["inactive"]}"/>')
+    # macOS's own window-button colours, as the social preview draws them.
+    for i, dot in enumerate(["#ff5f57", "#febc2e", "#28c840"]):
+        c.add(f'<circle cx="{x0 + 20 + i * 18}" cy="{y0 + 19}" r="5.5" fill="{dot}"/>')
     c.text(x0 + w / 2 - len(title) * 7.2 / 2, y0 + 24, title, "subtle", size=12, font="Helvetica Neue")
     return c, x0 + 28, y0 + 74
 

@@ -65,7 +65,7 @@ class Canvas:
 
 def backdrop(c, width, height):
     """Shared definitions. The background stays transparent, so the image sits on GitHub's own page colour."""
-    c.add('<defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feGaussianBlur in="SourceAlpha" stdDeviation="10"/><feOffset dy="6"/>'
+    c.add('<defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="10"/><feOffset dy="6"/>'
           '<feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
           '<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#6e7681"/></marker></defs>')
 
@@ -77,8 +77,9 @@ def frame(width, height, title):
     c.add(f'<g filter="url(#shadow)"><rect x="{x0}" y="{y0}" width="{w}" height="{h}" rx="8" fill="{C["term"]}" stroke="{C["border"]}"/></g>')
     c.add(f'<path d="M{x0 + 0.5} {y0 + 38} v-30 a7.5 7.5 0 0 1 7.5 -7.5 h{w - 16} a7.5 7.5 0 0 1 7.5 7.5 v30 z" fill="{C["bar"]}"/>')
     c.add(f'<line x1="{x0}" y1="{y0 + 38}" x2="{x0 + w}" y2="{y0 + 38}" stroke="{C["border"]}"/>')
-    for i in range(3):
-        c.add(f'<circle cx="{x0 + 20 + i * 18}" cy="{y0 + 19}" r="5" fill="{C["inactive"]}"/>')
+    # macOS's own window-button colours, as the social preview draws them.
+    for i, dot in enumerate(["#ff5f57", "#febc2e", "#28c840"]):
+        c.add(f'<circle cx="{x0 + 20 + i * 18}" cy="{y0 + 19}" r="5.5" fill="{dot}"/>')
     c.text(x0 + w / 2 - len(title) * 7.2 / 2, y0 + 24, title, "subtle", size=12, font="Helvetica Neue")
     return c, x0 + 28, y0 + 74
 

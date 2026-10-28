@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
 import { average, stopwatch } from './format'
+import { summarize } from './results'
 import { kindOf, parseTool } from './tools'
 
 /** How many earlier runs of each tool the average covers. */
@@ -43,9 +44,10 @@ export function registerTiming(on: On): void {
     const elapsed = ended - started
     const earlier = ((await quietly(() => $.store.get(historyKey(name)))) as number[] | undefined) ?? []
     await quietly(() => $.store.set(historyKey(name), [...earlier, elapsed].slice(-HISTORY)))
-    const mark = result.isError === true || result.deny !== undefined ? '✗' : '✓'
+    const outcome = result.deny !== undefined ? { ok: false } : summarize(name, { isError: result.isError === true, text: result.text ?? '' })
     const comparison = earlier.length > 0 ? ` (avg ${stopwatch(average(earlier))})` : ''
-    await quietly(() => $.ui.toast(`${mark} ${name} · ${stopwatch(elapsed)}${comparison}`))
+    const detail = outcome.detail ? ` · ${outcome.detail}` : ''
+    await quietly(() => $.ui.toast(`${outcome.ok ? '✓' : '✗'} ${name} · ${stopwatch(elapsed)}${comparison}${detail}`))
     return result
   })
 }

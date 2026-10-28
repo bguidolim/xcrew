@@ -74,12 +74,13 @@ ok    xcode-mcp/macro-copy-phase       none
 | Skills | `/xcrew:setup`, and the `xcrew` reference Claude loads when something fails |
 | CLI | `xcrew setup`, `doctor`, `repair-macros`, `xcode-skills`; on Claude's `PATH` while the plugin is enabled |
 
-While a build or test runs, the status line counts it, and a toast reports how it went and how it compares with recent runs of the same tool:
+While a build or test runs, the status line counts it, and a toast reports how it went, how it compares with recent runs of the same tool, and what failed:
 
 ```
 build_sim running · 0:41
-✓ build_sim · 1:12 (avg 1:05)
-✗ test_sim · 2:03 (avg 1:58)
+✓ test_sim · 1:12 (avg 1:05) · 412 passed
+✗ test_sim · 2:03 (avg 1:58) · 3 of 412 failed · PaymentsTests/testRefund
+✗ BuildProject · 0:48 · FooView.swift:12 Cannot find 'bar' in scope
 ```
 
 `xcrew xcode-skills` copies the agent skills your Xcode ships (SwiftUI, accessibility, device interaction) into the project. It copies whatever the installed Xcode has, so run it again after an Xcode update to pick up new ones.

@@ -1,0 +1,90 @@
+/**
+ * What a build, test or run call came to, read from the server's own output. Each reader matches
+ * one shape captured from a real server (see `fixtures.ts`); output in any other shape falls back
+ * to whether the server reported a tool error, so a server update degrades the toast, not breaks it.
+ */
+export type ToolOutput = { isError: boolean; text: string }
+export type Summary = { ok: boolean; detail?: string }
+
+/** Keeps the toast to one line. */
+const MAX_DETAIL = 100
+const TESTS_DID_NOT_RUN = "build failed, tests didn't run"
+
+export function summarize(_tool: string, output: ToolOutput): Summary {
+  const json = parseObject(output.text)
+  const summary = (json && (fromMobileBuildMCP(json) ?? fromXcodeMCP(json))) ?? fromMobileBuildMCPText(output.text) ?? { ok: !output.isError }
+  return summary.detail ? { ...summary, detail: shorten(summary.detail) } : summary
+}
+
+type Json = Record<string, unknown>
+
+function parseObject(text: string): Json | undefined {
+  try {
+    const value: unknown = JSON.parse(text)
+    return value !== null && typeof value === 'object' ? (value as Json) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** MobileBuildMCP's JSON, which it returns when a build or test run succeeds. */
+function fromMobileBuildMCP(json: Json): Summary | undefined {
+  if (typeof json.schema !== 'string' || !json.schema.startsWith('mobilebuildmcp.output.')) return undefined
+  const summary = (json.data as Json | undefined)?.summary as Json | undefined
+  if (!summary) return undefined
+  const ok = summary.status === 'SUCCEEDED'
+  const counts = summary.counts as { passed?: number; failed?: number; skipped?: number } | undefined
+  if (!counts) return { ok }
+  const failed = counts.failed ?? 0
+  const total = (counts.passed ?? 0) + failed + (counts.skipped ?? 0)
+  return failed > 0 ? { ok: false, detail: `${failed} of ${total} failed` } : { ok, detail: `${counts.passed ?? 0} passed` }
+}
+
+/** The Xcode MCP's JSON: it reports failed builds and failed tests as normal results. */
+function fromXcodeMCP(json: Json): Summary | undefined {
+  if (json.type === 'error') {
+    const message = String(json.data ?? '')
+    return { ok: false, detail: /build action failed/i.test(message) ? TESTS_DID_NOT_RUN : message || undefined }
+  }
+  const counts = json.counts as { passed?: number; failed?: number; total?: number } | undefined
+  if (counts) {
+    const failed = counts.failed ?? 0
+    if (failed === 0) return { ok: true, detail: `${counts.passed ?? 0} passed` }
+    const results = (json.results as { identifier?: string; state?: string }[] | undefined) ?? []
+    const first = results.find(result => result.state === 'Failed')?.identifier
+    return { ok: false, detail: `${failed} of ${counts.total ?? failed} failed${first ? ` · ${first}` : ''}` }
+  }
+  if (typeof json.buildResult === 'string' && Array.isArray(json.errors)) {
+    const errors = (json.errors as { classification?: string; filePath?: string; lineNumber?: number; message?: string }[])
+      .filter(error => error.classification !== 'warning')
+    if (errors.length === 0) return { ok: true }
+    const first = errors[0]
+    const where = first.filePath ? `${basename(first.filePath)}:${first.lineNumber ?? '?'} ` : ''
+    return { ok: false, detail: `${errors.length > 1 ? `${errors.length} errors · ` : ''}${where}${first.message ?? ''}`.trim() }
+  }
+  return undefined
+}
+
+/** MobileBuildMCP's text, which it returns instead of JSON when a build or test run fails. */
+function fromMobileBuildMCPText(text: string): Summary | undefined {
+  const tests = /❌ (\d+) tests? failed, (\d+) passed, (\d+) skipped/.exec(text)
+  if (tests) {
+    const [failed, passed, skipped] = tests.slice(1).map(Number)
+    const first = /^\s*✗ (.+?) \/ (\S+?)(?:\(\))?: /m.exec(text)
+    return { ok: false, detail: `${failed} of ${failed + passed + skipped} failed${first ? ` · ${first[1]}/${first[2]}` : ''}` }
+  }
+  if (text.startsWith('🧪') && text.includes('❌ Test failed')) return { ok: false, detail: TESTS_DID_NOT_RUN }
+  if (text.includes('❌ Build failed')) {
+    const first = /^\s*✗ (.+)\n\s*(\/\S+):(\d+)/m.exec(text)
+    return { ok: false, detail: first ? `${basename(first[2])}:${first[3]} ${first[1]}` : undefined }
+  }
+  return undefined
+}
+
+function basename(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1)
+}
+
+function shorten(text: string): string {
+  return text.length > MAX_DETAIL ? `${text.slice(0, MAX_DETAIL - 1)}…` : text
+}

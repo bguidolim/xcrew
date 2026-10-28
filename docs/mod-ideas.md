@@ -7,7 +7,7 @@ A working list of what Xcrew's mod could show or do. Nothing here is decided; en
 | Where | Example | When |
 | --- | --- | --- |
 | Status line | `build_sim running · 0:41` | While a build, test or app run is going, updated every second |
-| Toast | `✓ build_sim · 1:12 (avg 1:05)` · `✗ test_sim · 2:03` | When one ends; the average covers the last 10 runs of that tool |
+| Toast | `✓ test_sim · 1:12 (avg 1:05) · 412 passed` · `✗ BuildProject · 0:48 · FooView.swift:12 Cannot find 'bar' in scope` | When one ends; the average covers the last 10 runs of that tool; the detail comes from the server's own result |
 | Toast | `repaired Debug-iphonesimulator/SwiftMockKitMacros (index build) and retried BuildProject` | After a macro-plugin repair |
 | Denied tool call | `XcodeWrite re-saves the whole generated project file…` | `XcodeWrite` in a Tuist or XcodeGen project |
 | Hook spinner | `xcrew: preparing Xcode tooling` · `xcrew: checking Xcode macro plugins` | Session start; after a build failure with the plugin-kill message |
@@ -41,7 +41,7 @@ Effort: **S** a day or less, **M** a few days, **L** more, or needs research fir
 
 | Idea | Looks like | Surface | Data | Effort | Open questions |
 | --- | --- | --- | --- | --- | --- |
-| Results in the toast | `✗ test_sim · 2:03 · 3 of 412 failed` · `✗ build_sim · 0:48 · 2 errors · FooView.swift:12` | Toast | The tool's result text | M | Capture real outputs from MobileBuildMCP and the Xcode MCP first; parse defensively, fall back to today's toast |
+| ~~Results in the toast~~ | Shipped: see what the mod shows today | | | | |
 | What's building | `build_sim · AVDPortfolio · iPhone 16 · 0:41` | Status line | The call's input, else the active profile in `.mobilebuildmcp/config.yaml` | S | The Xcode MCP uses the active scheme; read it with `XcodeListSchemes`, or leave it out |
 | Build band | `last ✓ build 1:12 ▁▂▂▃▂ · ✗ tests 3 failed · 1 plugin repaired` | Band | `$.store` history | M | Hide when idle? The hamzafer conventions say yes, after a few minutes |
 | Live progress | `build_sim · compiling 412/1,280 · 0:41` | Status line or band | Stream the build's log while it runs | L | Does MobileBuildMCP send MCP progress, or write a log the mod can follow? The `ToolProgress` render site only exposes `kind` |

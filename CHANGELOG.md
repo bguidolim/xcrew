@@ -6,6 +6,7 @@
 - Mod: macro-plugin repair with retry, build and test timing, the `XcodeWrite` guard.
 - Swift CLI: `setup`, `doctor`, `repair-macros`, `xcode-skills`, and the hook entry points.
 - mcs techpack installing the plugin, MobileBuildMCP and the per-project setup.
+- The build and test toast says what failed: the first compile error with its file and line, or how many tests failed and the first one. Failed Xcode MCP builds and test runs now count as failures; the server reports them as normal results.
 - The doctor names projects still generated with Tuist's pre-4.203 in-place macro copy phase, and the repair message gives that cause and its fix.
 - The macro-plugin repair hook runs only when a build fails with the plugin-kill message, and the doctor skips projects with no macro plugins.
 - The `XcodeWrite` guard applies only to generated projects; `xcode-skills` keeps a project's own skills of the same name unless `--force`; setup keeps a managed config that was edited by hand; the README installs per project.

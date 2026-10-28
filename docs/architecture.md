@@ -13,6 +13,16 @@ All behaviour lives in a dependency-free Swift package. Everything else is a thi
 
 `bin/xcrew` builds the package on first use, keyed by a hash of its sources, so a plugin update rebuilds once and removes the build it replaces, and Swift's ABI stability keeps a build working across Xcode updates.
 
+## Why a CLI
+
+The mod alone could hold most of this logic, in TypeScript. The CLI exists because every other way in needs an executable:
+
+- **mcs** runs a configure script and one script per doctor check; it never loads the mod.
+- **The plugin's command hooks** are the fallback where mods don't run, such as an organization that allows only its own mods.
+- **Claude** runs `xcrew doctor` and `xcrew setup` from the skills.
+
+One CLI keeps one implementation of each behaviour, tested with Swift Testing in the language the people who'll change it write. The mod stays thin: it decides when to act and calls the CLI to act.
+
 ## The Swift package
 
 ```

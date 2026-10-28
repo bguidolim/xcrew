@@ -184,3 +184,19 @@ import XcrewTestSupport
         }
     }
 }
+
+@Suite struct SetupNextStepTests {
+    let simulators = FakeRunner(responses: [
+        "xcrun simctl list devices available --json": .init(status: 0, stdout: #"{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-27-0":[{"name":"iPhone 18","isAvailable":true}]}}"#),
+    ])
+
+    @Test func withoutAnAppSchemeSetupPointsAtTheSkill() async {
+        let run = await Run("setup", context: .fake(simulators, project: .temporary(containing: ["App.xcworkspace"])))
+        #expect(run.text.contains("/xcrew:setup adds the app and UI-test profiles"))
+    }
+
+    @Test func withAnAppSchemeItDoesNot() async {
+        let run = await Run("setup", "--app-scheme", "App", context: .fake(simulators, project: .temporary(containing: ["App.xcworkspace"])))
+        #expect(!run.text.contains("/xcrew:setup adds"))
+    }
+}

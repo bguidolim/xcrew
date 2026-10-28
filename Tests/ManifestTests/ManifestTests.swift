@@ -107,9 +107,12 @@ import XcrewCore
         }
     }
 
-    @Test func mcsPromptsAnswerEverySetupOption() async throws {
+    /// mcs asks only for the workspace; the simulator defaults to the newest iPhone, and the
+    /// schemes are found by `/xcrew:setup` instead of typed in.
+    @Test func mcsAsksOnlyForTheWorkspace() async throws {
         let keys = try text("techpack.yaml").matches(of: /- key: (\w+)/).map { String($0.1) }
-        #expect(Set(keys) == Set(SetupCommand.mcsKeys.values))
+        #expect(keys == ["PROJECT"])
+        #expect(Set(keys).isSubset(of: Set(SetupCommand.mcsKeys.values)), "a prompt no setup option reads")
     }
 
     @Test func mcsConfiguresThroughTheCLI() async throws {

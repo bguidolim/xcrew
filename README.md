@@ -15,7 +15,7 @@
 Each of the three servers is good at different things, and on their own they overlap, misroute and trip over each other. Xcrew installs all three, tells Claude which one to use for what, and fixes the failures you'd otherwise hit by hand:
 
 - **Routing.** Every session in an Apple-platform project starts knowing which server builds, which previews, which knows the docs, and which tool never to touch.
-- **Macro-plugin repair.** When Xcode rewrites a Swift macro plugin in place, macOS kills it and the build fails with *"produced malformed response"*. Xcrew re-copies the plugin and retries the build before Claude sees the failure.
+- **Macro-plugin repair.** When Xcode rebuilds a Swift macro plugin it can rewrite the signed binary in place, and macOS kills the next launch of a binary rewritten that way; the build fails with *"produced malformed response"*. Xcrew re-copies dead plugins and retries the build before Claude sees the failure. The same message has other causes (a toolchain mismatch, stale prebuilt macros); there, no plugin is dead and the repair does nothing.
 - **Build and test timing.** A live status line while a build or test runs, and a toast when it ends: `✓ build_sim · 1:12 (avg 1:05)`.
 - **Project-file guard.** The Xcode MCP's `XcodeWrite` re-saves the whole `.pbxproj`; Xcrew refuses it and points Claude at its own Write tool.
 - **Setup and doctor.** `/xcrew:setup` writes MobileBuildMCP's per-project profiles from your schemes and installed simulators; `xcrew doctor` checks the Mac and the project and prints the fix for anything wrong.
@@ -101,7 +101,7 @@ Run `xcrew doctor` first; every line that isn't `ok` names its fix. Beyond that:
 | Every Xcode MCP call fails with "not approved" | Xcode asks once per agent | Have Claude call `XcodeOpenWorkspace`; allow it in Xcode's dialog |
 | MobileBuildMCP has only simulator tools | No `.mobilebuildmcp/config.yaml` in the project | `/xcrew:setup`, then restart Claude Code |
 | `No such module 'UIKit'` from SourceKit | Claude Code's language server can't read Xcode projects | Ignore it; the Xcode MCP's diagnostics are the real ones |
-| A build keeps failing with "malformed response" after a repair | The plugin is broken, not just killed | Clean the build folder and rebuild |
+| A build keeps failing with "malformed response" after a repair | The plugin is broken, not just killed, or the cause is another one: a toolchain mismatch or stale prebuilt macros | Clean the build folder and rebuild; check `xcode-select -p` points at the Xcode you build with |
 | A session starts with an `xcrew: building the CLI` error | The Swift toolchain is older than 6.2, or Xcode's command-line tools aren't selected | `xcode-select -p` should point into Xcode 27; `sudo xcode-select -s /Applications/Xcode.app` |
 | `project-config` warns the config points at a missing workspace | The project moved or the workspace was renamed | `/xcrew:setup` |
 

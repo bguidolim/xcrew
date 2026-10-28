@@ -5,7 +5,8 @@ description: Apple's Xcode MCP, Sentry's MobileBuildMCP and Sosumi set up to wor
 minMCSVersion: "2026.10.25"
 
 # The Claude Code plugin carries the servers, hooks, skills and mod; this pack installs it with
-# the Homebrew package it needs, asks the per-project questions and runs the checks.
+# the Homebrew package it needs, asks which workspace to build, and runs the checks. The
+# simulator defaults to the newest iPhone installed; /xcrew:setup finds the schemes.
 # Tests/ManifestTests keeps the prompts and checks in step with the Swift CLI.
 ignore:
   - Tests/
@@ -23,26 +24,6 @@ prompts:
     detectPattern:
       - "*.xcworkspace"
       - "*.xcodeproj"
-  - key: TEST_SIMULATOR
-    type: input
-    label: "Simulator for unit and snapshot tests (empty: the newest iPhone installed)"
-    default: ""
-  - key: APP_SIMULATOR
-    type: input
-    label: "Simulator for UI tests and running the app (empty: the test simulator)"
-    default: ""
-  - key: APP_SCHEME
-    type: input
-    label: "Scheme that builds the app (empty: no app profile)"
-    default: ""
-  - key: APP_BUNDLE_ID
-    type: input
-    label: "App bundle ID (empty: none)"
-    default: ""
-  - key: UI_TEST_SCHEME
-    type: input
-    label: "UI-test scheme (empty: no ui profile)"
-    default: ""
 
 components:
   - id: mobilebuildmcp

@@ -61,7 +61,7 @@ test('a build killed by a dead macro plugin is repaired and retried once', async
   expect(seen.runs).toHaveLength(1)
   expect(seen.runs[0][0]).toMatch(/\/bin\/xcrew$/)
   expect(seen.runs[0].slice(1)).toEqual(['repair-macros'])
-  expect(seen.toasts.some(t => t.includes('MockableMacros') && t.includes('retried'))).toBe(true)
+  expect(seen.toasts).toContain('repaired Debug-iphonesimulator/MockableMacros and retried BuildProject')
 })
 
 test('when nothing was repaired, the failure stands and the build is not retried', async ($, on) => {
@@ -95,7 +95,7 @@ test('a build shows its elapsed time while it runs and a toast when it ends', as
   const seen = watch(on)
   on('tool.call', async () => {
     await clock.advance(3_000)
-    expect(seen.statuses.at(-1)).toBe('xcrew: build_sim running · 0:03')
+    expect(seen.statuses.at(-1)).toBe('build_sim running · 0:03')
     await clock.advance(69_000)
     return { result: {}, text: 'Build succeeded' }
   })

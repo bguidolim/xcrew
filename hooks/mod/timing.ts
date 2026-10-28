@@ -29,7 +29,7 @@ export function registerTiming(on: On): void {
     const ticker = started === undefined ? undefined : await quietly(() =>
       $.clock.every(1000, async () => {
         const now = await quietly(() => $.clock.now())
-        if (now !== undefined) await quietly(() => $.ui.status(`xcrew: ${name} running · ${stopwatch(now - started)}`))
+        if (now !== undefined) await quietly(() => $.ui.status(`${name} running · ${stopwatch(now - started)}`))
       }),
     )
 

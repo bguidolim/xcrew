@@ -21,7 +21,7 @@ export function registerRepair(on: On): void {
     const repaired = [...stdout.matchAll(/^repaired: (.+)$/gm)].map(match => match[1])
     if (repaired.length === 0) return first
 
-    $.ui.toast(`xcrew repaired ${repaired.join(', ')} and retried ${parseTool(e.tool)?.tool ?? e.tool}`)
+    $.ui.toast(`repaired ${repaired.join(', ')} and retried ${parseTool(e.tool)?.tool ?? e.tool}`)
     return next(e)
   })
 }

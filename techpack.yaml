@@ -9,6 +9,7 @@ minMCSVersion: "2026.10.25"
 # Tests/ManifestTests keeps the prompts and checks in step with the Swift CLI.
 ignore:
   - Tests/
+  - assets/
   - docs/
   - CONTRIBUTING.md
   - SECURITY.md

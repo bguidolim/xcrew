@@ -25,7 +25,9 @@ public struct MacroPluginLocator: Sendable {
         let prefixes = Set(project.derivedDataNames.map { $0 + "-" })
         let builds = Self.children(of: derivedData).filter { folder in prefixes.contains { folder.lastPathComponent.hasPrefix($0) } }
         // Products/ also holds .xctestrun files beside the configuration folders.
-        let folders = builds.flatMap { Self.children(of: $0.appending(path: "Build/Products")) }.filter(Self.isDirectory)
+        // The indexer builds and copies plugins into its own products too.
+        let productRoots = ["Build/Products", "Index.noindex/Build/Products"]
+        let folders = builds.flatMap { build in productRoots.flatMap { Self.children(of: build.appending(path: $0)) } }.filter(Self.isDirectory)
         let extra = (machine.value("XCREW_MACRO_PLUGINS") ?? "")
             .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         self.init(productFolders: folders.sorted { $0.path < $1.path }, extraNames: Set(extra))

@@ -111,3 +111,24 @@ import XcrewTestSupport
         #expect(MacroPluginLocator(project: project, machine: machine).productFolders.isEmpty)
     }
 }
+
+@Suite struct IndexBuildLocatorTests {
+    /// Xcode's indexer builds and copies macro plugins into its own products folder too.
+    @Test func theIndexBuildsProductsAreSearchedToo() throws {
+        let project = Project.temporary(containing: ["App.xcworkspace"])
+        let derivedData = project.root.appending(path: "dd")
+        let build = derivedData.appending(path: "App-abc/Build/Products/Debug-iphonesimulator")
+        let index = derivedData.appending(path: "App-abc/Index.noindex/Build/Products/Debug-iphonesimulator")
+        for folder in [build, index] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        let machine = Machine(environment: ["XCREW_DERIVED_DATA": derivedData.path], home: project.root, runner: FakeRunner())
+        #expect(Set(MacroPluginLocator(project: project, machine: machine).productFolders.map(\.path)) == [build.path, index.path])
+    }
+}
+
+@Suite struct PluginLabelTests {
+    @Test func theIndexBuildsCopyIsLabelledAsSuch() {
+        let root = "/DD/App-abc"
+        #expect(MacroPlugin(path: URL(fileURLWithPath: "\(root)/Build/Products/Debug-iphonesimulator/AMacros")).label == "Debug-iphonesimulator/AMacros")
+        #expect(MacroPlugin(path: URL(fileURLWithPath: "\(root)/Index.noindex/Build/Products/Debug-iphonesimulator/AMacros")).label == "Debug-iphonesimulator/AMacros (index build)")
+    }
+}

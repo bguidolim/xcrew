@@ -6,6 +6,7 @@
 - Mod: macro-plugin repair with retry, build and test timing, the `XcodeWrite` guard.
 - Swift CLI: `setup`, `doctor`, `repair-macros`, `xcode-skills`, and the hook entry points.
 - mcs techpack installing the plugin, MobileBuildMCP and the per-project setup.
+- Runs show in colour on a line above the prompt, live and then with their outcome for a few minutes; the plain status line stays as the fallback where that line can't draw.
 - The status line names the scheme and simulator a build or test run uses.
 - A build or test run of a minute or more also sends its result as a notification.
 - The build and test toast says what failed: the first compile error with its file and line, or how many tests failed and the first one. Failed Xcode MCP builds and test runs now count as failures; the server reports them as normal results.

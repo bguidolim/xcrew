@@ -18,5 +18,6 @@
     "mcp",
     "simulator",
     "xcodebuild"
-  ]
+  ],
+  "types": "./types/index.d.ts"
 }

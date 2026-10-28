@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
 import { average, stopwatch } from './format'
+import { endRun, startRun } from './band'
 import { describe, observe } from './context'
 import { summarize } from './results'
 import { kindOf, parseTool } from './tools'
@@ -20,8 +21,9 @@ async function quietly<T>(work: () => Promise<T> | T): Promise<T | undefined> {
 }
 
 /**
- * Times builds, test runs and app runs: a status line counts while one runs, a toast reports the
- * result and how it compares with the last runs of the same tool, and a long run also notifies.
+ * Times builds, test runs and app runs: the band (or, where none draws, the status line) counts
+ * while one runs and then shows its outcome, a toast reports the result and how it compares with
+ * the last runs of the same tool, and a long run also notifies.
  */
 export function registerTiming(on: On): void {
   on('tool.call', async ($, e, next) => {
@@ -38,8 +40,13 @@ export function registerTiming(on: On): void {
     const label = target ? `${name} · ${target}` : `${name} running`
 
     const started = await quietly(() => $.clock.now())
+    // The band draws in colour where a surface can show it; elsewhere the plain status line carries the run.
+    const surfaces = (await quietly(() => $.session.surfaces())) ?? []
+    const usesBand = surfaces.some(surface => surface === 'terminal' || surface === 'desktop')
+    if (usesBand && started !== undefined) await quietly(() => startRun($, { tool: name, target, startedAt: started }))
     const ticker = started === undefined ? undefined : await quietly(() =>
       $.clock.every(1000, async () => {
+        if (usesBand) return quietly(() => $.ui.invalidate('ui.render'))
         const now = await quietly(() => $.clock.now())
         if (now !== undefined) await quietly(() => $.ui.status(`${label} · ${stopwatch(now - started)}`))
       }),
@@ -48,7 +55,7 @@ export function registerTiming(on: On): void {
     const result = await next(e)
 
     ticker?.cancel()
-    await quietly(() => $.ui.status(undefined))
+    if (!usesBand) await quietly(() => $.ui.status(undefined))
     const ended = await quietly(() => $.clock.now())
     if (started === undefined || ended === undefined) return result
 
@@ -59,6 +66,10 @@ export function registerTiming(on: On): void {
     const comparison = earlier.length > 0 ? ` (avg ${stopwatch(average(earlier))})` : ''
     const detail = outcome.detail ? ` · ${outcome.detail}` : ''
     const summary = `${outcome.ok ? '✓' : '✗'} ${name} · ${stopwatch(elapsed)}${comparison}${detail}`
+    if (usesBand) {
+      const averageMs = earlier.length > 0 ? average(earlier) : undefined
+      await quietly(() => endRun($, { at: ended, elapsed, ok: outcome.ok, detail: outcome.detail, average: averageMs }))
+    }
     await quietly(() => $.ui.toast(summary))
     // Long enough that the person has likely looked away; their notification settings decide how it arrives.
     if (elapsed >= LONG_RUN_MS) await quietly(() => $.ui.notify(summary))

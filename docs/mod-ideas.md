@@ -6,7 +6,7 @@ A working list of what Xcrew's mod could show or do. Nothing here is decided; en
 
 | Where | Example | When |
 | --- | --- | --- |
-| Status line | `test_sim · MyApp on iPhone 17 · 0:41` | While a build, test or app run is going, updated every second; scheme and destination learned from the servers' own answers |
+| Band above the prompt, in colour | `● test_sim · MyApp on iPhone 17 · 0:41`, then `✓ test_sim · 1:12 (avg 1:05) · 412 passed` | While a run is going, then its outcome for three minutes; success and failure in the theme's colours. Where no band draws (VS Code), the plain status line carries the run |
 | Toast | `✓ test_sim · 1:12 (avg 1:05) · 412 passed` · `✗ BuildProject · 0:48 · FooView.swift:12 Cannot find 'bar' in scope` | When one ends; the average covers the last 10 runs of that tool; the detail comes from the server's own result |
 | Toast | `repaired Debug-iphonesimulator/SwiftMockKitMacros (index build) and retried BuildProject` | After a macro-plugin repair |
 | Denied tool call | `XcodeWrite re-saves the whole generated project file…` | `XcodeWrite` in a Tuist or XcodeGen project |

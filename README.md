@@ -74,7 +74,7 @@ ok    xcode-mcp/macro-copy-phase       none
 | Skills | `/xcrew:setup`, and the `xcrew` reference Claude loads when something fails |
 | CLI | `xcrew setup`, `doctor`, `repair-macros`, `xcode-skills`; on Claude's `PATH` while the plugin is enabled |
 
-While a build or test runs, the status line counts it and names the scheme and simulator it's using, and a toast reports how it went, how it compares with recent runs of the same tool, and what failed:
+While a build or test runs, a coloured line above the prompt counts it and names the scheme and simulator it's using (the status line does this where that line can't draw, such as VS Code), and a toast reports how it went, how it compares with recent runs of the same tool, and what failed:
 
 ```
 test_sim · MyApp on iPhone 17 · 0:41

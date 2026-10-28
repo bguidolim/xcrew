@@ -1,4 +1,5 @@
 import type { Register } from 'claude-code'
+import { registerBand } from './band'
 import { registerGuard } from './guard'
 import { registerRepair } from './repair'
 import { registerTiming } from './timing'
@@ -12,4 +13,5 @@ export const register: Register = on => {
   registerGuard(on)
   registerTiming(on)
   registerRepair(on)
+  registerBand(on)
 }

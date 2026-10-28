@@ -3,6 +3,7 @@ import { average, comparison, gauge, remaining, stopwatch } from './format'
 import { endRun, setMeasuredFrom, setPhase, startRun } from './band'
 import { describe, observe, scopeOf } from './context'
 import { recordRun } from './failures'
+import { locateFailures } from './locations'
 import { phaseOf, findRunLog } from './progress'
 import { compactTestResult, compactTestText, reportedDuration, summarize, testTotal } from './results'
 import { kindOf, parseTool } from './tools'
@@ -120,7 +121,10 @@ export function registerTiming(on: On): void {
     const ended = await quietly(() => $.clock.now())
     if (started === undefined || ended === undefined) return result
 
-    const text = result.deny !== undefined ? '' : await fullText($, result.text ?? '')
+    const read = result.deny !== undefined ? '' : await fullText($, result.text ?? '')
+    // A failing MobileBuildMCP test run gets each failure's file and line from its result bundle.
+    const located = followsLog && kindOf(parsed) === 'test' && read.startsWith('🧪') ? await quietly(() => locateFailures($, read)) : undefined
+    const text = located ?? read
     // The server's own duration leaves out what ran around the call: a project's pre-build hook, a permission prompt.
     const elapsed = reportedDuration(text) ?? ended - started
     await quietly(() => $.store.set(historyKey(history), [...earlier, elapsed].slice(-HISTORY)))
@@ -143,7 +147,7 @@ export function registerTiming(on: On): void {
     // result is that large because of its per-test list; Claude gets the rest, and the file stays.
     if (result.deny !== undefined) return result
     const saved = SAVED_RESULT.exec(result.text ?? '')?.[1]
-    const compact = saved ? compactTestResult(text, saved) : compactTestText(text)
+    const compact = (saved ? compactTestResult(text, saved) : compactTestText(text)) ?? (text !== read ? text : undefined)
     // Its own `result`, without core's `ref`: with `ref` kept, core shows the model its own messages.
     if (compact) return result.isError ? { result: compact, isError: true } : { result: compact }
     if (kindOf(parsed) === 'test' && testTotal(text) === 0) return { ...result, context: [...(result.context ?? []), NO_TESTS_NOTE] }

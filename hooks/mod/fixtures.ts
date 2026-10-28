@@ -130,3 +130,35 @@ export const mobileTestsNoneRan: Captured = {
   isError: false,
   text: '{"schema":"mobilebuildmcp.output.test-result","schemaVersion":"3","didError":false,"error":null,"data":{"summary":{"status":"SUCCEEDED","durationMs":9120,"counts":{"passed":0,"failed":0,"skipped":0},"target":"simulator"},"artifacts":{"buildLogPath":"~/Library/Developer/MobileBuildMCP/workspaces/sample-0000/logs/test_sim.log"},"diagnostics":{"warnings":[],"errors":[],"testFailures":[]}}}',
 }
+
+/**
+ * A failing run's text as MobileBuildMCP gives it when the tests run on parallel clones: the
+ * failure without its file and line, which only the result bundle has.
+ */
+export const mobileTestsFailedUnlocated: Captured = {
+  isError: true,
+  text: `🧪 Test
+
+Test Failures (1):
+
+  ✗ FormatterTests / test_symbol(): failed - deliberate failure
+
+Test Results:
+  ✅ FormatterTests/test_euro() (0.001s)
+  ❌ FormatterTests/test_symbol() (4.774s)
+
+❌ 1 test failed, 1 passed, 0 skipped (⏱️ 38.6s)
+  └ Files:
+     └── ~/Library/Developer/MobileBuildMCP/workspaces/sample-0000/
+         ├── logs/test_sim_1.log — Build Logs
+         ├── result-bundles/test_sim_1.xcresult — Result Bundle
+         └── test-products/test_sim_1.xctestproducts — Test Products`,
+}
+
+/** \`xcrun xcresulttool get test-results test-details\` for that failure, trimmed to the fields read. */
+export const xcresultFailureDetails =
+  '{"testIdentifier":"FormatterTests/test_symbol()","testResult":"Failed","testRuns":[{"children":[{"children":[{"children":[{"name":"","nodeType":"Source Code Reference","sourceLocation":{"filePath":"/Users/dev/App/Tests/FormatterTests.swift","lineNumber":7}}],"name":"failed - deliberate failure","nodeType":"Test Case Run","result":"Failed"}],"name":"Test Scheme Action","nodeType":"Test Plan Configuration","result":"Failed"}],"name":"iPhone 12","nodeType":"Device","result":"Failed"}]}'
+
+/** The same for a crash: a crash log attached, and no source location. */
+export const xcresultCrashDetails =
+  '{"testIdentifier":"FormatterTests/test_crash()","testResult":"Failed","testRuns":[{"children":[{"children":[{"children":[{"name":"Crash Log.ips","nodeType":"Attachment"}],"name":"Crash: xctest at implicit closure #1 in FormatterTests.test_crash()","nodeType":"Test Case Run","result":"Failed"}],"name":"Test Scheme Action","nodeType":"Test Plan Configuration","result":"Failed"}],"name":"iPhone 12","nodeType":"Device","result":"Failed"}]}'

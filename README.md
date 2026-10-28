@@ -74,10 +74,10 @@ ok    xcode-mcp/macro-copy-phase       none
 | Skills | `/xcrew:setup`, and the `xcrew` reference Claude loads when something fails |
 | CLI | `xcrew setup`, `doctor`, `repair-macros`, `xcode-skills`; on Claude's `PATH` while the plugin is enabled |
 
-While a build or test runs, the status line counts it, and a toast reports how it went, how it compares with recent runs of the same tool, and what failed:
+While a build or test runs, the status line counts it and names the scheme and simulator it's using, and a toast reports how it went, how it compares with recent runs of the same tool, and what failed:
 
 ```
-build_sim running · 0:41
+test_sim · MyApp on iPhone 17 · 0:41
 ✓ test_sim · 1:12 (avg 1:05) · 412 passed
 ✗ test_sim · 2:03 (avg 1:58) · 3 of 412 failed · PaymentsTests/testRefund
 ✗ BuildProject · 0:48 · FooView.swift:12 Cannot find 'bar' in scope

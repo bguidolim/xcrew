@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
 import { average, stopwatch } from './format'
+import { describe, observe } from './context'
 import { summarize } from './results'
 import { kindOf, parseTool } from './tools'
 
@@ -25,14 +26,22 @@ async function quietly<T>(work: () => Promise<T> | T): Promise<T | undefined> {
 export function registerTiming(on: On): void {
   on('tool.call', async ($, e, next) => {
     const parsed = parseTool(e.tool)
-    if (!parsed || !kindOf(parsed)) return next(e)
+    if (!parsed) return next(e)
+    if (!kindOf(parsed)) {
+      // Not timed, but its answer may say what the next build will use.
+      const result = await next(e)
+      observe(parsed, result.text ?? '')
+      return result
+    }
     const name = parsed.tool
+    const target = describe(parsed, e as unknown as Record<string, unknown>)
+    const label = target ? `${name} · ${target}` : `${name} running`
 
     const started = await quietly(() => $.clock.now())
     const ticker = started === undefined ? undefined : await quietly(() =>
       $.clock.every(1000, async () => {
         const now = await quietly(() => $.clock.now())
-        if (now !== undefined) await quietly(() => $.ui.status(`${name} running · ${stopwatch(now - started)}`))
+        if (now !== undefined) await quietly(() => $.ui.status(`${label} · ${stopwatch(now - started)}`))
       }),
     )
 

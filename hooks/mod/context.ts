@@ -1,0 +1,52 @@
+import type { XcodeTool } from './tools'
+
+/**
+ * What the next build will use, learned from what the servers answer: MobileBuildMCP's session
+ * defaults (Claude calls `session_show_defaults` before its first build) and the Xcode MCP's
+ * active scheme and destination. Lives for the session; nothing learned means nothing shown.
+ */
+type Target = { scheme?: string; destination?: string }
+
+const mobile: { current?: string; profiles: Record<string, { scheme?: string; simulatorName?: string }> } = { profiles: {} }
+let xcode: Target = {}
+
+/** Learns from one finished call's output. */
+export function observe(tool: XcodeTool, text: string): void {
+  const json = parse(text)
+  if (!json) return
+  if (tool.server === 'MobileBuildMCP') {
+    const data = json.data as { currentProfile?: string; profiles?: typeof mobile.profiles } | undefined
+    if (json.schema === 'mobilebuildmcp.output.session-defaults' && data?.profiles) mobile.profiles = data.profiles
+    if (typeof data?.currentProfile === 'string') mobile.current = data.currentProfile
+    return
+  }
+  const scheme = typeof json.activeScheme === 'string' ? json.activeScheme : undefined
+  const destination = [json.activeDestinationDisplayTitle, json.activeRunDestination].find(value => typeof value === 'string') as string | undefined
+  if (scheme || destination) xcode = { scheme: scheme ?? xcode.scheme, destination: destination ?? xcode.destination }
+}
+
+/** `scheme on destination`, either part alone, or undefined when nothing is known. */
+export function describe(tool: XcodeTool, input: Record<string, unknown>): string | undefined {
+  const target: Target =
+    tool.server === 'MobileBuildMCP'
+      ? {
+          scheme: (input.scheme as string | undefined) ?? profile()?.scheme ?? undefined,
+          destination: (input.simulatorName as string | undefined) ?? profile()?.simulatorName ?? undefined,
+        }
+      : xcode
+  if (target.scheme && target.destination) return `${target.scheme} on ${target.destination}`
+  return target.scheme ?? target.destination
+}
+
+function profile() {
+  return mobile.current === undefined ? undefined : mobile.profiles[mobile.current]
+}
+
+function parse(text: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(text)
+    return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : undefined
+  } catch {
+    return undefined
+  }
+}

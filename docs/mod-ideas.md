@@ -6,7 +6,7 @@ A working list of what Xcrew's mod could show or do. Nothing here is decided; en
 
 | Where | Example | When |
 | --- | --- | --- |
-| Status line | `build_sim running · 0:41` | While a build, test or app run is going, updated every second |
+| Status line | `test_sim · MyApp on iPhone 17 · 0:41` | While a build, test or app run is going, updated every second; scheme and destination learned from the servers' own answers |
 | Toast | `✓ test_sim · 1:12 (avg 1:05) · 412 passed` · `✗ BuildProject · 0:48 · FooView.swift:12 Cannot find 'bar' in scope` | When one ends; the average covers the last 10 runs of that tool; the detail comes from the server's own result |
 | Toast | `repaired Debug-iphonesimulator/SwiftMockKitMacros (index build) and retried BuildProject` | After a macro-plugin repair |
 | Denied tool call | `XcodeWrite re-saves the whole generated project file…` | `XcodeWrite` in a Tuist or XcodeGen project |
@@ -42,7 +42,7 @@ Effort: **S** a day or less, **M** a few days, **L** more, or needs research fir
 | Idea | Looks like | Surface | Data | Effort | Open questions |
 | --- | --- | --- | --- | --- | --- |
 | ~~Results in the toast~~ | Shipped: see what the mod shows today | | | | |
-| What's building | `build_sim · AVDPortfolio · iPhone 16 · 0:41` | Status line | The call's input, else the active profile in `.mobilebuildmcp/config.yaml` | S | The Xcode MCP uses the active scheme; read it with `XcodeListSchemes`, or leave it out |
+| ~~What's building~~ | Shipped: learned from `session_show_defaults` and the Xcode MCP's workspace and scheme answers | | | | |
 | Build band | `last ✓ build 1:12 ▁▂▂▃▂ · ✗ tests 3 failed · 1 plugin repaired` | Band | `$.store` history | M | Hide when idle? The hamzafer conventions say yes, after a few minutes |
 | Live progress | `build_sim · compiling 412/1,280 · 0:41` | Status line or band | Stream the build's log while it runs | L | Does MobileBuildMCP send MCP progress, or write a log the mod can follow? The `ToolProgress` render site only exposes `kind` |
 | Slow-run alert | `⚠ build_sim · 3:40, 2× its usual 1:50` | Toast | `$.store` history | S | Threshold: 1.5× the average, and only after 5 runs |

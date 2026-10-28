@@ -249,3 +249,65 @@ test('a notification that cannot be sent never affects the run', async ($, on) =
 
   expect(ran.text).toBe('Build succeeded')
 })
+
+// MARK: What's building
+
+import * as captured from './fixtures'
+
+/** Answers each call with the next captured result, and records the status line. */
+function serve(on: On, results: Record<string, { isError: boolean; text: string }>, clock: { advance: (ms: number) => Promise<void> }) {
+  const statuses: (string | undefined)[] = []
+  on('ui.status', (_, e) => {
+    statuses.push(e.text)
+    return { value: undefined }
+  })
+  on('ui.toast', () => ({ value: undefined }))
+  on('tool.call', async (_, e) => {
+    const answer = results[e.tool.split('__').pop() ?? '']
+    if (/build|test/i.test(e.tool)) await clock.advance(3_000)
+    return { result: {}, text: answer?.text ?? 'ok', ...(answer?.isError ? { isError: true } : {}) }
+  })
+  return statuses
+}
+
+test('the status line names the scheme and simulator MobileBuildMCP will use', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const statuses = serve(on, { session_show_defaults: captured.mobileSessionDefaults }, clock)
+
+  await $.tool.call({ tool: 'mcp__plugin_xcrew_MobileBuildMCP__session_show_defaults' })
+  await $.tool.call({ tool: 'mcp__plugin_xcrew_MobileBuildMCP__test_sim' })
+
+  expect(statuses).toContain('test_sim · MacroProbe-Package on iPhone 16 · 0:03')
+})
+
+test('switching profiles changes what the status line names', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const statuses = serve(on, { session_show_defaults: captured.mobileSessionDefaults, session_use_defaults_profile: captured.mobileProfileSwitched }, clock)
+
+  await $.tool.call({ tool: 'mcp__MobileBuildMCP__session_show_defaults' })
+  await $.tool.call({ tool: 'mcp__MobileBuildMCP__session_use_defaults_profile', profile: 'unit' })
+  await $.tool.call({ tool: 'mcp__MobileBuildMCP__build_sim' })
+
+  expect(statuses).toContain('build_sim · iPhone 12 · 0:03')
+})
+
+test('the status line names the scheme and destination the Xcode MCP has active', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const statuses = serve(on, { XcodeOpenWorkspace: captured.xcodeWorkspaceOpened }, clock)
+
+  await $.tool.call({ tool: 'mcp__xcode__XcodeOpenWorkspace', path: '/Users/dev/MacroProbe' })
+  await $.tool.call({ tool: 'mcp__xcode__BuildProject' })
+
+  expect(statuses).toContain('BuildProject · MacroProbe-Package on My Mac · 0:03')
+})
+
+test('with nothing learned yet, the status line stays as it was', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const statuses = serve(on, {}, clock)
+  await $.tool.call({ tool: 'mcp__MobileBuildMCP__build_sim' })
+  expect(statuses).toContain('build_sim running · 0:03')
+})

@@ -1,0 +1,33 @@
+# A tag v<version> releases Xcrew. Claude Code keeps people on a plugin's version until it
+# changes, so the tag must match the version the plugin and the CLI declare.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: The tag matches the declared version
+        run: |
+          tag=${GITHUB_REF_NAME#v}
+          plugin=$(plutil -extract version raw .claude-plugin/plugin.json)
+          swift=$(sed -n 's/.*current = "\(.*\)".*/\1/p' Sources/XcrewCore/XcrewVersion.swift)
+          echo "tag $tag · plugin.json $plugin · XcrewVersion $swift"
+          [ "$tag" = "$plugin" ] && [ "$tag" = "$swift" ]
+          grep -q "^## $tag — [0-9]" CHANGELOG.md || { echo "CHANGELOG.md needs a dated '## $tag — <date>' entry"; exit 1; }
+      - name: Test
+        run: swift test
+      - name: Publish the release with its changelog entry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=${GITHUB_REF_NAME#v}
+          awk -v v="$tag" '$0 ~ "^## "v" " {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" --title "Xcrew $tag" --notes-file notes.md

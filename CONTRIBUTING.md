@@ -27,7 +27,9 @@ claude --plugin-dir .   # try your checkout in a real session
 Claude Code keeps people on a plugin's `version` until it changes, so every release bumps it:
 
 1. Set the new version in `Sources/XcrewCore/XcrewVersion.swift` and `.claude-plugin/plugin.json`, and turn the changelog's top entry into `## <version> — <date>`. `ManifestTests` fails until all three agree.
-2. Merge to `main` with CI green, then tag it: `git tag v<version> && git push --tags`.
+2. Merge to `main` with CI green, then tag it: `git tag v<version> && git push --tags`. The release workflow refuses a tag that doesn't match the declared version, then publishes the release with its changelog entry.
+
+Between releases, `main` moves ahead of the version people have installed; that's expected, and it's why a release is a version bump.
 
 ## Reporting a problem
 

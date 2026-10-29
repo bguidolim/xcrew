@@ -66,7 +66,7 @@ You need macOS 26 or later, Xcode 27 or later, [Homebrew](https://brew.sh) and [
 
 4. **Approve Claude Code in Xcode's dialog** the first time Claude calls the Xcode MCP.
 
-With the [mcs CLI](https://github.com/mcs-cli/mcs), `mcs pack add breferrari/xcrew --ref stable && mcs sync` does steps 1 to 3 and asks the setup questions (in `mcs.yaml`, give the pack `ref: stable`). `stable` holds the latest release; without it you run unreleased code. mcs loads the plugin from its copy of the pack, so it shows as `xcrew@mcs-xcrew`, and when you switch from a marketplace install its plugin data starts empty.
+With the [mcs CLI](https://github.com/mcs-cli/mcs), `mcs pack add breferrari/xcrew --ref stable && mcs sync` does steps 1 to 3 and asks the setup questions.
 
 ## What you get
 

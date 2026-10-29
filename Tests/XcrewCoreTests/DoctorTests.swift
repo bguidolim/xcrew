@@ -75,6 +75,14 @@ import XcrewTestSupport
         #expect(await XcrewUpdateCheck().run(checkout(at: root, project: project, latest: "99.0.0")) == .warn("\(XcrewVersion.current) (5b646cc) installed, 99.0.0 released: mcs update"))
     }
 
+    /// `bin/xcrew` hands over the checkout's real path, which a symlinked `~/.mcs` doesn't spell.
+    @Test func anMCSCheckoutBehindASymlinkedMCSFolderIsToldToUpdateThroughMCS() async throws {
+        let project = Project.temporary(containing: ["home", "elsewhere/mcs/packs/xcrew"])
+        try FileManager.default.createSymbolicLink(at: project.root.appending(path: "home/.mcs"), withDestinationURL: project.root.appending(path: "elsewhere/mcs"))
+        let root = project.root.appending(path: "elsewhere/mcs/packs/xcrew").path
+        #expect(await XcrewUpdateCheck().run(checkout(at: root, project: project, latest: "99.0.0")) == .warn("\(XcrewVersion.current) (5b646cc) installed, 99.0.0 released: mcs update"))
+    }
+
     @Test func offlineTheCommitIsStillShown() async {
         #expect(await XcrewUpdateCheck().run(checkout(online: false)) == .skip("\(XcrewVersion.current) (5b646cc): couldn't reach GitHub to compare"))
     }

@@ -24,7 +24,7 @@ struct XcrewUpdateCheck: Check {
         let root = context.machine.value("XCREW_ROOT") ?? "."
         let update = if checkout == nil {
             "claude plugin update xcrew@breferrari, or turn on auto-update in /plugin → Marketplaces → breferrari"
-        } else if root.hasPrefix(context.machine.home.appending(path: ".mcs").path + "/") {
+        } else if ProjectLayout.canonical(URL(fileURLWithPath: root)).hasPrefix(ProjectLayout.canonical(context.machine.home.appending(path: ".mcs")) + "/") {
             "mcs update"
         } else {
             "git pull in \(root)"

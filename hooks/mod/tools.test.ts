@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { buildsProject, kindOf, mayBeManifest, parseTool, runsGenerate, runsSetup } from './tools'
+import { buildsProject, generatedApps, kindOf, mayBeManifest, parseTool, runsGenerate, runsSetup } from './tools'
 
 const kind = (name: string) => {
   const tool = parseTool(name)
@@ -93,4 +93,28 @@ test('only tools that build the project are held back after a manifest edit', ()
 test('a shell command that runs xcrew setup is recognised, by any path, quoted or not', () => {
   for (const command of ['xcrew setup', '"/plugins/xcrew/bin/xcrew" setup --app-scheme App', 'cd ios && ~/xcrew/bin/xcrew setup', "'/a b/bin/xcrew' setup", '(xcrew setup)', 'xcrew setup;echo done']) expect(runsSetup(command)).toBe(true)
   for (const command of ['xcrew doctor', 'xcrewsetup', 'echo xcrew setups', 'myxcrew setup']) expect(runsSetup(command)).toBe(false)
+})
+
+test('the app each generate names is read from its own option or a cd before it, and none is named without either', () => {
+  const cases: [string, (string | undefined)[]][] = [
+    ['tuist generate --no-open --path apps/b', ['apps/b']],
+    ['tuist generate -p ./apps/b/ --no-open', ['apps/b']],
+    ["tuist generate --no-open --path 'my apps/b'", ['my apps/b']],
+    ['tuist generate --path=apps/b', ['apps/b']],
+    ['tuist generate --no-open --path ios', ['ios']],
+    ['tuist install --path ios && tuist generate --no-open --path ios', ['ios']],
+    ['tuist install && tuist generate --no-open', [undefined]],
+    ['tuist generate --no-open --path /work/Repo/apps/a', ['/work/Repo/apps/a']],
+    ['xcodegen generate --spec ios/project.yml', ['ios']],
+    ['xcodegen -s ./ios/project.yml', ['ios']],
+    // XcodeGen's `-p` is the folder it writes to, not the spec it reads.
+    ['xcodegen generate -p build', [undefined]],
+    ['cd ios && tuist generate --no-open', ['ios']],
+    ['cd apps/a && tuist generate --no-open && cd ../b && tuist generate --no-open', ['apps/a', '../b']],
+    ['tuist generate --no-open --path apps/a && tuist generate --no-open --path apps/b', ['apps/a', 'apps/b']],
+    ['tuist generate --no-open', [undefined]],
+    ['xcodegen generate', [undefined]],
+    ['echo nothing', []],
+  ]
+  for (const [command, apps] of cases) expect([command, generatedApps(command)]).toEqual([command, apps])
 })

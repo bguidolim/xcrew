@@ -29,18 +29,29 @@ export function mayBeManifest(path: string): boolean {
   return MANIFEST_NAME.test(path)
 }
 
-/** `tuist generate`, or `xcodegen` with its default `generate` or none, by any path to the program. */
-const GENERATE_COMMAND = /(?:^|[\s;&|(])["']?(?:[^\s"']*\/)?(?:tuist["']?\s+generate|xcodegen["']?(?:\s+generate)?(?!\s+[a-z]))(?=[\s;&|)]|$)/
+/** `tuist generate`, or `xcodegen` with its default `generate` or none, by any path to the program, which it captures. */
+const GENERATE_COMMAND = /(?:^|[\s;&|(])["']?(?:[^\s"']*\/)?(?:(tuist)["']?\s+generate|(xcodegen)["']?(?:\s+generate)?(?!\s+[a-z]))(?=[\s;&|)]|$)/g
+
+/** One generate in a shell command: its program, and the command before and after it. */
+type Generate = { program: 'tuist' | 'xcodegen'; before: string; after: string }
+
+/** Every generate a shell command runs, in order. */
+function generatesIn(command: string): Generate[] {
+  return [...command.matchAll(GENERATE_COMMAND)].map(match => ({
+    program: match[1] ? 'tuist' : 'xcodegen',
+    before: command.slice(0, match.index),
+    after: command.slice(match.index + match[0].length),
+  }))
+}
 
 /**
  * Whether a shell command regenerates the project, and its exit status says whether that worked: nothing after the
- * generate but redirections and `&&`, since a later command's status, in a pipe or after `;`, would hide a failure.
+ * first generate but redirections, `&&` and more of it, since a later command's status, in a pipe or after `;`, would
+ * hide a failure.
  */
 export function runsGenerate(command: string): boolean {
-  const match = GENERATE_COMMAND.exec(command)
-  if (!match) return false
-  const rest = command.slice(match.index + match[0].length).replace(/\d*>&\d+|&&/g, ' ')
-  return !/[|;&\n]/.test(rest)
+  const [first] = generatesIn(command)
+  return first !== undefined && !/[|;&\n]/.test(first.after.replace(/\d*>&\d+|&&/g, ' '))
 }
 
 /** The matcher for the guard: the engine calls a hook only for the tools its matcher matches. */
@@ -101,4 +112,27 @@ export function buildsProject(tool: XcodeTool): boolean {
   if (kind === 'build') return !/\bclean\b/.test(words)
   if (kind === 'run') return !/\blaunch\b/.test(words)
   return kind === 'test'
+}
+
+/** The option naming the app each generator reads: Tuist's folder, and XcodeGen's spec, whose folder is the app's. */
+const APP_OPTION = {
+  tuist: /(?:^|\s)(?:--path|-p)(?:=|\s+)('[^']*'|"[^"]*"|\S+)/,
+  xcodegen: /(?:^|\s)(?:--spec|-s)(?:=|\s+)('[^']*'|"[^"]*"|\S+)/,
+} as const
+/** A `cd` into a folder just before the generate, joined by `&&`. */
+const CD_BEFORE = /(?:^|[;&|(]\s*)cd\s+('[^']*'|"[^"]*"|[^\s;&|]+)\s*&&\s*$/
+
+/**
+ * The app each generate in a shell command is for, as the path its option or a `cd` before it gives: `apps/b` for
+ * `--path ./apps/b/`. Nothing for one that names none, which may have run anywhere.
+ */
+export function generatedApps(command: string): (string | undefined)[] {
+  return generatesIn(command).map(({ program, before, after }) => {
+    const named = APP_OPTION[program].exec(after.split(/[;&|\n]/)[0] ?? '')?.[1]
+    const path = named ?? CD_BEFORE.exec(before)?.[1]
+    if (path === undefined) return undefined
+    const unquoted = path.replace(/^(['"])(.*)\1$/, '$2').replace(/^\.\//, '')
+    const folder = (named !== undefined && program === 'xcodegen' ? unquoted.replace(/\/?[^/]*$/, '') : unquoted).replace(/\/+$/, '')
+    return folder === '' || folder === '.' ? undefined : folder
+  })
 }

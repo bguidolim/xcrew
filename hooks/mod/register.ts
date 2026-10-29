@@ -2,14 +2,14 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 import type { BandProblems, BandRun, CliBuild, FailureList, ResultRow, StaleProject } from '../../types'
 import { changedRun, endedRun, outcomeLine, problemsTree, promptLine, resultTree, runTree, shownFor, showsRun } from './band'
-import { answerOf, couldntRun, generateOf, isGeneratedOf, knownBuild, namedBuild, phaseArgs, phaseOf, problemsOf, ranOutOfTime, reportArgs, reportOf, shimPath, type Failure, type Problem, type Ran } from './cli'
+import { answerOf, couldntRun, isGeneratedOf, knownBuild, manifestEditOf, namedBuild, phaseArgs, phaseOf, problemsOf, ranOutOfTime, reportArgs, reportOf, shimPath, type Failure, type Problem, type Ran } from './cli'
 import { COMMAND, historyText, isStale, keptHistory, USAGE } from './command'
 import { describe, historyOf, observe } from './context'
 import { afterRun, paneTree, summary } from './failures'
 import { average } from './format'
 import { describedForGenerated, REASON } from './guard'
 import { mostSerious, noticed, REREAD_EVERY_MS, visible, WARNING_FOR_MS } from './problems'
-import { editedNote, letThroughNote, refusal } from './regenerate'
+import { afterGenerate, editedNote, letThroughNote, marked, marksOf, refusal } from './regenerate'
 import { DURATIONS_PREFIX, drawsBand, endingOf, type Following, historyKey, HISTORY, labelOf, LONG_RUN_MS, logsKey, phaseStep, quietly, resultFor, statusLine, testsKey, updatedKey, withContext } from './timing'
 import { drawsRow, rowOf } from './rows'
 import { buildsProject, FILE_EDITOR, kindOf, mayBeManifest, MCP_TOOL, parseTool, PROJECT_REWRITER, runsGenerate, runsSetup } from './tools'
@@ -48,22 +48,24 @@ export const register: Register = on => {
   on('tool.call', { tool: MCP_TOOL }, async ($, e, next) => {
     const parsed = parseTool(e.tool)
     const stale = parsed && buildsProject(parsed) ? await quietly(() => read($, staleState)) : undefined
-    if (!stale) return next(e)
+    const generates = marksOf(stale).map(mark => mark.generate)
+    if (!stale || generates.length === 0) return next(e)
     if (!stale.refused) {
       // Refused only once the mark says so: a refusal it can't record would repeat for good.
-      if (await markStale($, { ...stale, refused: true })) return { deny: refusal(stale.generate) }
+      if (await markStale($, current => current && { ...current, refused: true })) return { deny: refusal(generates) }
       return next(e)
     }
-    await markStale($, null)
+    // An edit meanwhile left a mark not yet refused for, which stays.
+    await markStale($, current => (current?.refused ? null : current))
     const result = await next(e)
-    return result.deny === undefined ? withContext(result, letThroughNote(stale.generate)) : result
+    return result.deny === undefined ? withContext(result, letThroughNote(generates)) : result
   }).catch(async ($, e, next) => next(e))
   on('tool.call', { tool: FILE_EDITOR }, async ($, e, next) => {
     const result = await next(e)
     if ((e.tool !== 'Write' && e.tool !== 'Edit') || result.deny !== undefined || result.isError || !mayBeManifest(e.file_path)) return result
-    const generate = generateOf(await answer($, ['project', '--manifest', e.file_path], 10_000))
-    if (!generate) return result
-    return (await markStale($, { generate, refused: false })) ? withContext(result, editedNote(generate)) : result
+    const edit = manifestEditOf(await answer($, ['project', '--manifest', e.file_path], 10_000))
+    if (!edit) return result
+    return (await markStale($, stale => marked(stale, edit))) ? withContext(result, editedNote(edit.generate)) : result
   }).catch(async ($, e, next) => next(e))
   on('tool.call', async ($, e, next) => {
     const parsed = parseTool(e.tool)
@@ -224,14 +226,14 @@ export const register: Register = on => {
     const result = await next(e)
     if (e.tool !== 'Bash') return result
     if (runsSetup(e.command)) void loadProblems($, true).catch(() => undefined)
-    if (runsGenerate(e.command) && !e.run_in_background && result.deny === undefined && !result.isError) await markStale($, null)
+    if (runsGenerate(e.command) && !e.run_in_background && result.deny === undefined && !result.isError) await markStale($, stale => afterGenerate(stale, e.command))
     return result
   }).catch(async ($, e, next) => next(e))
 }
 
-/** Records whether the project is stale; false when the state couldn't be written. */
-function markStale($: EngineInterface, stale: StaleProject | null): Promise<boolean> {
-  return quietly(() => update($, staleState, () => stale).then(() => true)).then(Boolean)
+/** Changes the marks of a stale project; false when the state couldn't be written. */
+function markStale($: EngineInterface, change: (stale: StaleProject | null) => StaleProject | null): Promise<boolean> {
+  return quietly(() => update($, staleState, change).then(() => true)).then(Boolean)
 }
 
 /** Starts a program of the CLI's: the mod's one process. */

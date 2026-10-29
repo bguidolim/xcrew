@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 
 /// Runs real processes and awaits them without blocking a thread. A program that isn't found
 /// reads as status 127 and one that outlives its timeout as 124, as a shell reports them.
@@ -17,7 +16,12 @@ public struct SystemCommandRunner: CommandRunning {
         searchPath.lazy.map { "\($0)/\(name)" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    /// How long the pipes may stay open once the program has ended or been stopped: a background child it started
+    /// can hold them for as long as it lives, and the program's last output can arrive just after its exit.
+    static let grace = Duration.seconds(1)
+
     public func run(_ argv: [String], stdin: Data?, timeout: Duration) async -> CommandResult {
+        let deadline = ContinuousClock.now + timeout
         guard let name = argv.first, let executable = name.hasPrefix("/") ? name : which(name) else { return .notFound }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -33,15 +37,14 @@ public struct SystemCommandRunner: CommandRunning {
         do { try process.run() } catch { return CommandResult(status: 127, stderr: "\(error)") }
 
         // Both pipes drain while the child runs, so a chatty child can't block on a full pipe.
-        async let stdout = Self.readToEnd(output.fileHandleForReading)
-        async let stderr = Self.readToEnd(errors.fileHandleForReading)
+        let stdout = Drain(output.fileHandleForReading), stderr = Drain(errors.fileHandleForReading)
         if let stdin { try? input.fileHandleForWriting.write(contentsOf: stdin) }
         try? input.fileHandleForWriting.close()
 
         let status = await withTaskGroup(of: Int32?.self) { group in
             group.addTask { await exit.first { _ in true } }
             group.addTask {
-                try? await Task.sleep(for: timeout)
+                try? await Task.sleep(until: deadline, clock: .continuous)
                 return nil
             }
             let first = await group.next() ?? nil
@@ -50,29 +53,28 @@ public struct SystemCommandRunner: CommandRunning {
         }
         guard let status else {
             process.terminate()
-            _ = await (stdout, stderr)
+            _ = await Self.collect(stdout, stderr, until: .now + Self.grace)
             return .timedOut
         }
-        return CommandResult(status: status, stdout: await stdout, stderr: await stderr)
+        let (out, err) = await Self.collect(stdout, stderr, until: .now + Self.grace)
+        return CommandResult(status: status, stdout: out, stderr: err)
     }
 
-    /// Collects a pipe's output as it arrives; resumes at end of file.
-    static func readToEnd(_ handle: FileHandle) async -> String {
-        let buffer = Buffer()
-        let data = await withCheckedContinuation { (continuation: CheckedContinuation<Data, Never>) in
-            handle.readabilityHandler = { handle in
-                let chunk = handle.availableData
-                guard chunk.isEmpty else { return buffer.append(chunk) }
-                handle.readabilityHandler = nil
-                continuation.resume(returning: buffer.contents)
+    /// Both pipes' text, read to end of file or until `deadline`, whichever comes first.
+    static func collect(_ stdout: Drain, _ stderr: Drain, until deadline: ContinuousClock.Instant) async -> (String, String) {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await stdout.ended()
+                await stderr.ended()
             }
+            group.addTask {
+                try? await Task.sleep(until: deadline, clock: .continuous)
+                stdout.stop()
+                stderr.stop()
+            }
+            await group.next()
+            group.cancelAll()
         }
-        return String(decoding: data, as: UTF8.self)
+        return (stdout.text, stderr.text)
     }
-}
-
-private final class Buffer: Sendable {
-    private let data = Mutex(Data())
-    func append(_ chunk: Data) { data.withLock { $0.append(chunk) } }
-    var contents: Data { data.withLock { $0 } }
 }

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The mod runs the CLI's build directly, about 5 ms a call instead of about 35 ms through `bin/xcrew`, which matters most for the band's once-a-second phase. `bin/xcrew` itself no longer hashes the sources on every call: it keeps the key in its cache and works it out again only when a source changes.
 - A call you deny at the permission prompt leaves no trace: no time in the usual-duration history, no outcome line, no notification.
 - A build killed outright no longer leaves a lock that holds up every Xcrew call for ten minutes.
 - A Tuist project with a root `Tuist.swift`, or with its manifests a folder or two below the root (`ios/`), counts as generated: the `XcodeWrite` guard and the doctor's copy-phase check both find it.

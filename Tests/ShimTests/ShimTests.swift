@@ -7,12 +7,14 @@ import Testing
     let root: URL
     let cache: URL
     let log: URL
+    let hashLog: URL
 
     init() throws {
         let base = FileManager.default.temporaryDirectory.appending(path: "xcrew-shim-\(UUID().uuidString)")
         root = base.appending(path: "plugin")
         cache = base.appending(path: "cache")
         log = base.appending(path: "builds.log")
+        hashLog = base.appending(path: "hashes.log")
         let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         try FileManager.default.createDirectory(at: root.appending(path: "bin"), withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: repository.appending(path: "bin/xcrew"), to: root.appending(path: "bin/xcrew"))
@@ -31,6 +33,14 @@ import Testing
         chmod +x "$scratch/release/xcrew"
         """
         try write(fakeSwift, to: "fakebin/swift", executable: true)
+        // Counts the hashing of the sources, the cost a second run should skip.
+        try write("""
+        #!/bin/sh
+        echo hash >> "\(hashLog.path)"
+        # Stands for an edit saved while the sources are being hashed.
+        if [ -n "${EDIT_DURING_HASH:-}" ]; then sleep 1; echo "// edited" >> "\(root.appending(path: "Sources/xcrew/main.swift").path)"; fi
+        exec /usr/bin/shasum "$@"
+        """, to: "fakebin/shasum", executable: true)
     }
 
     func write(_ text: String, to path: String, executable: Bool = false) throws {
@@ -79,9 +89,11 @@ import Testing
         for await _ in exit {}
     }
 
-    var builds: Int {
-        ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").count
+    func lines(in file: URL) -> Int {
+        ((try? String(contentsOf: file, encoding: .utf8)) ?? "").split(separator: "\n").count
     }
+
+    var builds: Int { lines(in: log) }
 
     @Test func buildsOnFirstUseAndRunsTheBinary() async throws {
         let run = try await shim("doctor", "--list")
@@ -123,13 +135,13 @@ extension ShimTests {
     /// clone don't rebuild in turn; one unused for two weeks goes.
     @Test func aRebuildKeepsRecentBuildsAndRemovesStaleOnes() async throws {
         _ = try await shim("help")
-        let first = try FileManager.default.contentsOfDirectory(atPath: cache.path).filter { $0 != "build" }
+        let first = try FileManager.default.contentsOfDirectory(atPath: cache.path).filter { !["build", "roots"].contains($0) }
         let stale = cache.appending(path: "0000000000000000")
         try FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -15 * 86_400)], ofItemAtPath: stale.path)
         try write("print(3)\n", to: "Sources/xcrew/main.swift")
         _ = try await shim("help")
-        let second = Set(try FileManager.default.contentsOfDirectory(atPath: cache.path).filter { $0 != "build" })
+        let second = Set(try FileManager.default.contentsOfDirectory(atPath: cache.path).filter { !["build", "roots"].contains($0) })
         #expect(first.count == 1)
         #expect(second.count == 2)
         #expect(second.isSuperset(of: first))
@@ -158,7 +170,60 @@ extension ShimTests {
         let started = Date()
         let run = try await shim("help")
         #expect(run.status == 0 && run.output.hasPrefix("ran help"))
-        #expect(Date().timeIntervalSince(started) < 5)
+        // The failure is a ten-minute wait; a minute is far from it and safe when the suite runs in parallel.
+        #expect(Date().timeIntervalSince(started) < 60)
         #expect(!FileManager.default.fileExists(atPath: lock.path))
+    }
+}
+
+extension ShimTests {
+    var hashes: Int { lines(in: hashLog) }
+
+    /// The band asks once a second while a build runs; the key is worked out once, not on every call.
+    @Test func laterRunsDontHashTheSourcesAgain() async throws {
+        _ = try await shim("help")
+        _ = try await shim("help")
+        _ = try await shim("help")
+        #expect(hashes == 1)
+        #expect(builds == 1)
+        // The key lives in the cache, not in the plugin folder, which may not be writable.
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: ".xcrew-key").path))
+    }
+
+    @Test func deletingASourceStillRebuilds() async throws {
+        try write("print(4)\n", to: "Sources/xcrew/Extra.swift")
+        _ = try await shim("help")
+        try FileManager.default.removeItem(at: root.appending(path: "Sources/xcrew/Extra.swift"))
+        _ = try await shim("help")
+        #expect(builds == 2)
+    }
+
+    /// The mod asks for the build once per run, then runs it directly on its once-a-second path.
+    @Test func itNamesTheBuildItWouldRun() async throws {
+        let run = try await shim("--binary-path")
+        #expect(run.status == 0)
+        let path = run.output.trimmingCharacters(in: .newlines)
+        #expect(path.hasPrefix(try await physicalPath(cache)) || path.hasPrefix(cache.path))
+        #expect(FileManager.default.isExecutableFile(atPath: path))
+        #expect(builds == 1)
+    }
+}
+
+extension ShimTests {
+    /// Unpacking or `cp -p` sets a file's modification time back; its change time still says it's new.
+    @Test func aSourceRestoredWithAnOldTimeStillRebuilds() async throws {
+        _ = try await shim("help")
+        let main = root.appending(path: "Sources/xcrew/main.swift")
+        try "print(5)\n".write(to: main, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -86_400)], ofItemAtPath: main.path)
+        _ = try await shim("help")
+        #expect(builds == 2)
+    }
+
+    /// The key is stamped with the time hashing began, so an edit saved meanwhile is seen next time.
+    @Test func anEditSavedWhileHashingIsSeenNextTime() async throws {
+        _ = try await shim("help", environment: ["EDIT_DURING_HASH": "1"])
+        _ = try await shim("help")
+        #expect(builds == 2)
     }
 }

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// What a MobileBuildMCP run is doing now, read from the xcodebuild output it logs as the run goes.
@@ -59,20 +60,41 @@ public enum RunLog {
         return nil
     }
 
-    /// The log of the MobileBuildMCP run that started at `since`: the newest `<tool>_…log` written
-    /// since then, in this project's workspace folder (`<project folder name>-<hash>`).
-    public static func find(tool: String, since: Date, project: URL, home: URL) -> URL? {
+    /// MobileBuildMCP's workspace folder for a project root, as its `workspaceKeyForRoot`
+    /// (`utils/workspace-identity.js`) names it: the folder's name made safe, then the first 12 hex of the root's
+    /// SHA-256 (docs/findings.md, *Which log is the run's*).
+    static func workspaceKey(root: String) -> String {
+        let name = root.split(separator: "/").last.map(String.init) ?? ""
+        // By Unicode scalar, as JavaScript reads the string: a decomposed accent's mark is replaced apart from its letter.
+        let safe = name.replacing(/[^A-Za-z0-9._-]+/.matchingSemantics(.unicodeScalar), with: "-")
+        let slug = String(safe.replacing(/^[.-]+|[.-]+$/, with: "").prefix(64))
+        return "\(slug.isEmpty ? "workspace" : slug)-\(SHA256.hash(data: Data(root.utf8)).hex.prefix(12))"
+    }
+
+    /// The run's log for the session running on `machine`: only its own MobileBuildMCP servers' logs count when there
+    /// is a session above this process to read them from.
+    /// The processes are read only once a log is there to choose among.
+    public static func find(tool: String, since: Date, project: URL, machine: Machine) async -> URL? {
+        guard find(tool: tool, since: since, project: project, home: machine.home) != nil else { return nil }
+        let (session, servers) = await ProcessList.load(using: machine.runner).mobileBuildMCPServers(forSessionOf: machine.processID)
+        return find(tool: tool, since: since, project: project, home: machine.home, servers: session == nil ? nil : Set(servers.map(\.id)))
+    }
+
+    /// The log of the MobileBuildMCP run that started at `since`: the newest `<tool>_…log` written since then, in this
+    /// project's own workspace folder, and when `servers` is given, written by one of them (`_pid<server>_`): two
+    /// sessions in one checkout share the folder. With no servers recognised, every server's logs count. MobileBuildMCP
+    /// keys the folder by the root as it found its config, or by its real path, `/private` included, without one, so
+    /// both are tried.
+    static func find(tool: String, since: Date, project: URL, home: URL, servers: Set<Int32>? = nil) -> URL? {
         let workspaces = home.appending(path: "Library/Developer/MobileBuildMCP/workspaces")
-        let prefix = project.lastPathComponent + "-"
+        let servers = servers.flatMap { $0.isEmpty ? nil : $0 }
+        let roots = [project.path, ProjectLayout.canonical(project)]
         let manager = FileManager.default
-        // `<name>-<hex hash>`: a bare prefix would also take `App-Legacy-<hash>` for `App`.
-        let folders = ((try? manager.contentsOfDirectory(atPath: workspaces.path)) ?? []).filter { folder in
-            folder.hasPrefix(prefix) && folder.dropFirst(prefix.count).allSatisfy(\.isHexDigit) && folder.count > prefix.count
-        }
         var newest: (url: URL, modified: Date)?
-        for folder in folders {
-            let logs = workspaces.appending(path: folder).appending(path: "logs")
+        for key in Set(roots.map(workspaceKey(root:))) {
+            let logs = workspaces.appending(path: key).appending(path: "logs")
             for name in (try? manager.contentsOfDirectory(atPath: logs.path)) ?? [] where name.hasPrefix("\(tool)_") && !name.contains("parser-debug") {
+                if let servers, !servers.contains(where: { name.contains("_pid\($0)_") }) { continue }
                 let url = logs.appending(path: name)
                 guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
                       modified >= since, modified > (newest?.modified ?? .distantPast)

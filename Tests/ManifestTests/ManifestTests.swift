@@ -234,19 +234,22 @@ import Testing
         #expect(named.isSubset(of: Set(ConfigRenderer.simEnvTools)), "\(named.subtracting(ConfigRenderer.simEnvTools).sorted())")
     }
 
-    /// Both Swift jobs run every test, so both check the test bed out, at one commit, named in full: a tag can move.
-    @Test func bothSwiftJobsPinTheSameTestBed() throws {
-        let ci = try text(".github/workflows/ci.yml")
-        let pins = ci.matches(of: /repository: breferrari\/xcrew-testbed\n\s+ref: ([0-9a-f]+)/).map { String($0.1) }
-        #expect(pins.count == 2)
+    /// Every run of the Swift tests in CI (both Swift jobs, and the canary's) checks the test bed out, at one commit,
+    /// named in full: a tag can move, and there a missing checkout fails `ciHasTheTestBed`.
+    @Test func everySwiftTestRunPinsTheSameTestBed() throws {
+        let workflows = [try text(".github/workflows/ci.yml"), try text(".github/workflows/canary.yml")]
+        let pins = workflows.flatMap { $0.matches(of: /repository: breferrari\/xcrew-testbed\n\s+ref: ([0-9a-f]+)/).map { String($0.1) } }
+        #expect(pins.count == 3)
         #expect(Set(pins).count == 1)
         #expect(pins.allSatisfy { $0.count == 40 })
-        #expect(ci.components(separatedBy: "XCREW_TESTBED: ${{ github.workspace }}/xcrew-testbed").count - 1 == 2)
+        let runs = workflows.map { $0.components(separatedBy: "XCREW_TESTBED: ${{ github.workspace }}/xcrew-testbed").count - 1 }
+        #expect(runs == [2, 1])
     }
 
-    /// Only the weekly canary can tell an install pull request that's pending from one that was abandoned, and only the
-    /// newest Claude Code can say xcrew still reads its saved-result notice, whose wording isn't documented.
-    @Test(arguments: ["scripts/marketplace-ref.sh ", "scripts/saved-notice.sh "])
+    /// Only the weekly canary can tell a `stable` still settling after a release from one left behind, and only the
+    /// newest Claude Code can say xcrew still reads its saved-result notice, whose wording isn't documented, and still
+    /// updates a plugin that follows a branch by its version.
+    @Test(arguments: ["scripts/stable-check.sh ", "scripts/saved-notice.sh ", "scripts/stable-follows.sh "])
     func theCanaryRunsEachUpstreamCheck(_ script: String) throws {
         #expect(try text(".github/workflows/canary.yml").contains(script))
     }
@@ -366,32 +369,40 @@ import Testing
         #expect(plugins.map { $0["name"] as? String } == ["xcrew"])
     }
 
-    /// The tags the marketplace may name: this version's, or the previous release's until the pull request after
-    /// the release moves it on, and only versions the changelog has released.
-    static func installableRefs(changelog: String, version: String) -> Set<String> {
-        let released = changelog.matches(of: #/\n## (\d+\.\d+\.\d+) — /#).map { String($0.1) }
-        let candidates = [version] + released.dropFirst().prefix(1)
-        return Set(candidates.filter(released.contains).map { "v\($0)" })
-    }
-
-    @Test func theMarketplaceMayLagOneRelease() {
-        let changelog = "# Changelog\n\n## Unreleased\n\n## 0.9.0 — 2026-11-01\n\n## 0.8.1 — 2026-10-29\n\n## 0.8.0 — 2026-10-29\n"
-        #expect(Self.installableRefs(changelog: changelog, version: "0.9.0") == ["v0.9.0", "v0.8.1"])
-    }
-
-    @Test func theMarketplaceNamesOnlyReleasedVersions() {
-        let changelog = "# Changelog\n\n## 0.9.0 — 2026-11-01\n\n## 0.8.1 — 2026-10-29\n"
-        #expect(Self.installableRefs(changelog: changelog, version: "0.9.1") == ["v0.8.1"])
-    }
-
-    /// A relative source would install main's HEAD under the last release's version.
-    @Test func theMarketplaceInstallsAReleaseTag() throws {
+    /// Installs follow `stable`, which only the release workflow moves, to a tag it accepted: a relative source would
+    /// install main's HEAD under the last release's version.
+    @Test func theMarketplaceInstallsTheStableBranch() throws {
         let repository = try #require((try json(".claude-plugin/plugin.json")["repository"] as? String)?.replacing("https://github.com/", with: ""))
         let plugins = try #require(try json(".claude-plugin/marketplace.json")["plugins"] as? [[String: Any]])
         let source = plugins.first?["source"] as? [String: String]
-        #expect(source?["source"] == "github" && source?["repo"] == repository)
-        #expect(Self.installableRefs(changelog: try text("CHANGELOG.md"), version: XcrewVersion.current).contains(source?["ref"] ?? ""))
+        #expect(source == ["source": "github", "repo": repository, "ref": "stable"])
         #expect(XcrewUpdateCheck.latestRelease == "https://api.github.com/repos/\(repository)/releases/latest")
+    }
+
+    /// The release workflow moves `stable` only after every check on the tag passed, and before it publishes, so
+    /// `xcrew doctor` never names a release installs can't reach. GitHub makes the move only as a fast-forward, and
+    /// write access is granted to that job alone; a rerun gets past both steps.
+    @Test func onlyAnAcceptedReleaseMovesStable() throws {
+        let release = try text(".github/workflows/release.yml")
+        #expect(!release.contains("\npermissions:"), "permissions belong to the job, not the workflow")
+        #expect(release.contains(#/\n    permissions:\n(?:      \S.*\n)*      contents: write\n/#))
+        let steps = release.components(separatedBy: "\n      - ")
+        let move = try #require(steps.firstIndex { $0.contains("refs/heads/stable") })
+        #expect(steps[move].contains(#"gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/stable" -f sha="$GITHUB_SHA" -F force=false"#))
+        #expect(steps[..<move].contains { $0.contains("is what its pull request tested") })
+        let publish = try #require(steps.firstIndex { $0.contains("gh release create") })
+        #expect(publish > move)
+        #expect(steps[publish].contains(#"gh release view "$GITHUB_REF_NAME""#))
+        for forced in ["force=true", "--force", #""+"#, "continue-on-error"] { #expect(!release.contains(forced), "\(forced)") }
+    }
+
+    /// Every place that reads or moves the branch installs follow names the one the marketplace does.
+    @Test(arguments: [".github/workflows/release.yml", ".github/workflows/canary.yml", "scripts/release.sh"])
+    func everyPlaceNamesTheBranchInstallsFollow(_ file: String) throws {
+        let plugins = try #require(try json(".claude-plugin/marketplace.json")["plugins"] as? [[String: Any]])
+        let branch = try #require((plugins.first?["source"] as? [String: String])?["ref"])
+        let text = try text(file)
+        #expect(text.contains("refs/heads/\(branch)") || text.contains("...\(branch)"), "\(file)")
     }
 }
 

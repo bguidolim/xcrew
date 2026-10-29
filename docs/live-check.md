@@ -41,5 +41,5 @@ While the session runs A to C:
 
 - The band above the prompt shows the tool, the elapsed time, the gauge against the usual duration, and the phase: `preparing`, `compiling <target>`, `testing X of N`.
 - The status line shows the estimate.
-- After A, `/xcrew failures` opens the pane with the probe's failures, and `/xcrew close` closes it.
+- After A, the band ends with `/xcrew failures`, which opens the pane with the probe's failures; `/xcrew close` closes it.
 - After C, `/xcrew history` lists the target's runs, and `/xcrew doctor` matches D1.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- After a failing build or test run, the line above the prompt ends with `/xcrew failures`, which opens the pane listing each failure.
+
 ## 0.7.2 — 2026-10-29
 
 - The mod runs the CLI's build directly, about 5 ms a call instead of about 35 ms through `bin/xcrew`, which matters most for the band's once-a-second phase. `bin/xcrew` itself no longer hashes the sources on every call: it keeps the key in its cache and works it out again only when a source changes.

@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Report } from './cli'
 import { callTool, runCommand, stubCli } from './testing'
@@ -112,4 +113,32 @@ test('/xcrew close closes the pane from the prompt, where its mark can\'t be cli
 
   expect(seen.closed).toEqual(['xcrew-failures'])
   expect(ran.text).toBe('Closed the failures pane.')
+})
+
+const BAND = {
+  plugin: 'xcrew',
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isWorking: true, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
+} as const
+
+/** The band's line as it reads, after the calls made so far. */
+async function bandText($: Engine): Promise<string> {
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  return (await ui.findAll({ type: 'Text' })).map(text => text.text).join('')
+}
+
+test('after a failing run the band says where its failures are, and the pane stays closed until asked', async ($, on) => {
+  const seen = engine(on, [TESTS_FAILED])
+  await callTool($, 'mcp__MobileBuildMCP__test_sim')
+
+  expect(await bandText($)).toEndWith(' · /xcrew failures')
+  expect(seen.opened).toEqual([])
+})
+
+test('a passing run, or a failure with nothing to list, points nowhere', async ($, on) => {
+  engine(on, [PASSED, { ok: false, failures: [] }])
+  await callTool($, 'mcp__MobileBuildMCP__test_sim')
+  expect(await bandText($)).not.toContain('/xcrew failures')
+  await callTool($, 'mcp__MobileBuildMCP__test_sim')
+  expect(await bandText($)).not.toContain('/xcrew failures')
 })

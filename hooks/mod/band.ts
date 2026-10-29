@@ -41,7 +41,7 @@ export function segments(run: BandRun, now: number): Segment[] {
     // What changes comes first, so a narrow terminal cuts the target, which the person already knows.
     return [{ text: '●', color: ORANGE }, { text: ' ' }, { text: run.tool, weight: 'semibold' }, { text: ` · ${stopwatch(elapsed)}`, color: 'subtle' }, ...(run.measuredFrom === undefined ? [] : gaugeSegments(now - run.measuredFrom, run.usual)), ...phase, ...target]
   }
-  const { ok, elapsed, comparison, detail } = run.ended
+  const { ok, elapsed, comparison, detail, hasFailures } = run.ended
   return [
     { text: ok ? '✓' : '✗', color: ok ? 'success' : 'error' },
     { text: ' ' },
@@ -50,6 +50,8 @@ export function segments(run: BandRun, now: number): Segment[] {
     { text: ` · ${stopwatch(elapsed)}`, color: 'subtle' },
     ...(comparison ? [{ text: ` ${comparison}`, color: ORANGE }] : []),
     ...(detail ? [{ text: ` · ${detail}`, color: ok ? 'subtle' : 'error' }] : []),
+    // The pane opens only when asked: docked or above the prompt, it takes room the chat needs.
+    ...(hasFailures ? [{ text: ' · /xcrew failures', color: 'subtle' }] : []),
   ]
 }
 

@@ -7,16 +7,16 @@ public enum MacroCopyPhase {
     /// The phase's own comment: specific to it, unlike the build-setting paths it shares.
     static let signature = "compile the macOS executable transitively"
     /// Folders never holding a project the developer builds from.
-    static let skipped = Project.dependencyFolders
+    static let skipped = ProjectLayout.dependencyFolders
     static let maxDepth = 5
 
     /// Names of the generated projects in `project` that still have the phase.
     public static func projects(in project: Project) -> [String] {
         // Only Tuist generated the phase, and the walk over a large tree takes most of a second.
-        guard project.isTuistProject else { return [] }
-        let tuistDerived = project.root.appending(path: "Tuist/.build/tuist-derived/Projects")
-        let candidates = projectFiles(under: project.root, depth: 0)
-            + children(of: tuistDerived).flatMap { projectFiles(under: $0, depth: maxDepth - 1) }
+        let tuistFolders = project.layout(.anywhereButHome).tuistFolders
+        guard !tuistFolders.isEmpty else { return [] }
+        let derived = tuistFolders.flatMap { children(of: $0.appending(path: "Tuist/.build/tuist-derived/Projects")) }
+        let candidates = projectFiles(under: project.root, depth: 0) + derived.flatMap { projectFiles(under: $0, depth: maxDepth - 1) }
         return candidates.filter(containsPhase).map {
             ($0.deletingLastPathComponent().lastPathComponent as NSString).deletingPathExtension
         }.sorted()

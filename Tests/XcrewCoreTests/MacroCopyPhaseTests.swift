@@ -15,6 +15,28 @@ let oldTuistCopyPhase = ##"shellScript = "#  This build phase serves two purpose
         #expect(MacroCopyPhase.projects(in: project) == ["Macros", "SomeMacros"])
     }
 
+    /// Xcode 27.2's JSON format keeps the project in `project.xcproj`, with a script as a list of lines, as its
+    /// `xcodeproj` tool writes one.
+    @Test func findsThePhaseInAJSONFormatProject() {
+        let project = Project.temporary(containing: ["Tuist"])
+        project.write(##"""
+        { "targets": [ { "name": "AMacros", "build-phases": [ { "kind": "script", "shell": "/bin/sh", "script": [
+          "#  This build phase serves two purposes:",
+          "#  - Force Xcode build system to compile the macOS executable transitively when compiling for non-macOS destinations",
+          "    cp -f \"$BUILD_DIR/$CONFIGURATION/AMacros\" \"$BUILD_DIR/Debug$EFFECTIVE_PLATFORM_NAME/AMacros\"",
+        ] } ] } ] }
+        """##, to: "Packages/Macros/Macros.xcodeproj/project.xcproj")
+        #expect(MacroCopyPhase.projects(in: project) == ["Macros"])
+    }
+
+    /// Two projects of one name are two projects to regenerate, whichever format each is in.
+    @Test func namesEachProjectThatHasThePhase() {
+        let project = Project.temporary(containing: ["Tuist"])
+        project.write(oldTuistCopyPhase, to: "Packages/Macros/Macros.xcodeproj/project.pbxproj")
+        project.write(oldTuistCopyPhase, to: "Tuist/.build/tuist-derived/Projects/Macros/Macros.xcodeproj/project.xcproj")
+        #expect(MacroCopyPhase.projects(in: project) == ["Macros", "Macros"])
+    }
+
     @Test func findsTheDerivedProjectsOfANestedTuistApp() {
         let project = Project.temporary(containing: [".git", "ios/Tuist"])
         project.write(oldTuistCopyPhase, to: "ios/Tuist/.build/tuist-derived/Projects/SomeMacros/SomeMacros.xcodeproj/project.pbxproj")

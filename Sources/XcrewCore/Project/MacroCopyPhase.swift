@@ -26,7 +26,7 @@ public enum MacroCopyPhase {
         guard depth <= maxDepth else { return [] }
         return children(of: folder).flatMap { child -> [URL] in
             let name = child.lastPathComponent
-            if name.hasSuffix(".xcodeproj") { return [child.appending(path: "project.pbxproj")] }
+            if name.hasSuffix(".xcodeproj") { return ProjectLayout.projectFile(in: child).map { [$0] } ?? [] }
             guard !name.hasPrefix("."), !skipped.contains(name), isDirectory(child) else { return [] }
             return projectFiles(under: child, depth: depth + 1)
         }

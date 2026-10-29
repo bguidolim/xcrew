@@ -6,6 +6,8 @@ final class Drain: Sendable {
     private struct State {
         var data = Data()
         var isEnded = false
+        /// Whether reading stopped because nothing new arrived in time, rather than at end of file.
+        var wentQuiet = false
         var waiter: CheckedContinuation<Void, Never>?
     }
 
@@ -43,8 +45,45 @@ final class Drain: Sendable {
         }
     }
 
-    /// What has arrived so far.
-    var text: String {
-        String(decoding: state.withLock { $0.data }, as: UTF8.self)
+    /// Returns once reading has stopped, stopping it at `deadline` if end of file hasn't come by then.
+    func ended(by deadline: ContinuousClock.Instant) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.ended() }
+            group.addTask {
+                try? await Task.sleep(until: deadline, clock: .continuous)
+                self.stop()
+            }
+            await group.next()
+            group.cancelAll()
+        }
     }
+
+    /// Returns once reading has stopped, stopping it once `idle` passes with nothing new arriving: true at end of file,
+    /// false when the pipe went quiet without closing.
+    func ended(idleFor idle: Duration) async -> Bool {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.ended() }
+            group.addTask {
+                while !Task.isCancelled {
+                    let seen = self.data.count
+                    try? await Task.sleep(for: idle)
+                    if Task.isCancelled { return }
+                    if self.data.count == seen {
+                        self.state.withLock { $0.wentQuiet = true }
+                        self.stop()
+                        return
+                    }
+                }
+            }
+            await group.next()
+            group.cancelAll()
+        }
+        return !state.withLock { $0.wentQuiet }
+    }
+
+    /// What has arrived so far.
+    var data: Data { state.withLock { $0.data } }
+
+    /// What has arrived so far, as text.
+    var text: String { String(decoding: data, as: UTF8.self) }
 }

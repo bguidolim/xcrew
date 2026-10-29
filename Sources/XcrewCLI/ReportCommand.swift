@@ -12,13 +12,15 @@ struct ReportCommand: Command {
     ]
 
     func run(_ invocation: Invocation) async throws -> Int32 {
-        guard let server = invocation.arguments["server"] else { throw UsageError(description: "report needs --server") }
+        guard let server = invocation.arguments["server"].flatMap(Server.init(rawValue:)) else {
+            throw UsageError(description: "report needs --server MobileBuildMCP or xcode")
+        }
         guard let kind = invocation.arguments["kind"].flatMap(Report.Kind.init(rawValue:)) else {
             throw UsageError(description: "report needs --kind build, test or run")
         }
-        let output = ToolOutput(text: String(decoding: invocation.standardInput(), as: UTF8.self), isError: invocation.arguments.has("error"))
+        let output = ToolOutput(text: String(decoding: invocation.standardInput(), as: UTF8.self), server: server, isError: invocation.arguments.has("error"))
         let machine = invocation.context.machine
-        let report = await Report.make(server: server, kind: kind, output: output, home: machine.home.path, runner: machine.runner)
+        let report = await Report.make(kind: kind, output: output, home: machine.home.path, runner: machine.runner)
         let encoded = try JSONEncoder.sorted.encode(report)
         invocation.print(String(decoding: encoded, as: UTF8.self))
         return 0

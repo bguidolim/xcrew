@@ -26,24 +26,29 @@ public struct Report: Sendable, Equatable, Codable {
         text.firstMatch(of: #/Output has been saved to (\/\S+\/tool-results\/\S+?)\.\s/#).map { String($0.1) }
     }
 
-    /// `server` is `MobileBuildMCP` or `xcode`. A result Claude Code saved to a file is read back from it.
-    public static func make(server: String, kind: Kind, output: ToolOutput, home: String, runner: any CommandRunning) async -> Report {
+    /// A result Claude Code saved to a file is read back from it.
+    public static func make(kind: Kind, output: ToolOutput, home: String, runner: any CommandRunning) async -> Report {
         let saved = savedPath(output.text)
-        let read = saved.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? output.text
-        // MobileBuildMCP's text omits what its result bundle knows; the Xcode MCP's results carry their own.
-        let isMobile = server == "MobileBuildMCP"
+        let read = saved.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }.map { ToolOutput(text: $0, server: output.server, isError: output.isError) } ?? output
         let isTest = kind == .test
-        let bundle = isMobile && isTest ? ResultBundle.path(in: read, home: home).map { ResultBundle(path: $0, runner: runner) } : nil
+        // MobileBuildMCP's text omits what its result bundle knows; the Xcode MCP's results carry their own.
+        let bundle = isTest ? ResultBundle.path(in: read, home: home).map { ResultBundle(path: $0, runner: runner) } : nil
         // The summary is needed whatever the run came to, so it's asked for while the failures are looked up.
         async let bundleSummary: String? = { await bundle?.summary() }()
-        var located: String?
-        if let bundle, read.hasPrefix("🧪") { located = await FailureNotes.adding(to: read, from: bundle) }
-        let text = located ?? (isMobile ? ToolOutput(text: read).cleanBuildText : nil) ?? read
-        let final = ToolOutput(text: text, isError: output.isError)
+        var final = read
+        var edited = false
+        if let text = read.mobileText {
+            if let bundle, text.isTestRun {
+                if let annotated = await FailureNotes.adding(to: text, from: bundle) { (final, edited) = (ToolOutput(annotated, isError: output.isError), true) }
+            } else if let cleaned = text.withoutExcerpts() {
+                (final, edited) = (ToolOutput(cleaned, isError: output.isError), true)
+            }
+        }
         let summary = final.summary
 
         var notes: [String] = []
-        if isTest, final.testTotal == 0 { notes.append(noTestsNote) }
+        let tests = final.testTotal
+        if isTest, tests == 0 { notes.append(noTestsNote) }
         if let bundle, let summary = await bundleSummary {
             // The test list is only asked for when the summary counts expected failures to name.
             let names = ResultBundle.expectedFailureCount(summary: summary) > 0 ? ResultBundle.expectedFailures(listing: await bundle.tests()) : []
@@ -55,9 +60,9 @@ public struct Report: Sendable, Equatable, Codable {
             ok: summary.ok,
             detail: summary.detail,
             durationMs: final.reportedDuration,
-            tests: final.testTotal,
+            tests: tests,
             failures: summary.ok ? [] : final.failures,
-            result: compact ?? (text != read ? text : nil),
+            result: compact ?? (edited ? final.text : nil),
             notes: notes
         )
     }

@@ -37,6 +37,11 @@ jobs:
           brew install getsentry/xcodebuildmcp/mobilebuildmcp
           claude --version
           mobilebuildmcp --version
+      - name: The newest mcs accepts the pack, without a warning
+        run: |
+          brew install mcs-cli/tap/mcs
+          mcs --version
+          scripts/pack-validate.sh . 2> "$RUNNER_TEMP/reasons" || { cat "$RUNNER_TEMP/reasons" >&2; exit 1; }
       - name: Claude Code still updates a plugin that follows a branch by its version
         run: scripts/stable-follows.sh 2> "$RUNNER_TEMP/reasons" || { cat "$RUNNER_TEMP/reasons" >&2; exit 1; }
       # The test bed's fixtures, at the commit CI pins: bump it there and here together.

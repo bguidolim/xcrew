@@ -265,6 +265,14 @@ import Testing
         #expect(try text(".github/workflows/canary.yml").contains(script))
     }
 
+    /// A new mcs release can tighten what a pack may declare, as `@pack` plugins did; users meet it on `mcs update`.
+    /// Only the canary runs it: the newest mcs, strict, would otherwise block every pull request on one new warning.
+    @Test func theCanaryValidatesThePackStrictlyWithTheNewestMCS() throws {
+        let canary = try text(".github/workflows/canary.yml")
+        #expect(canary.contains("brew install mcs-cli/tap/mcs"))
+        #expect(canary.contains("scripts/pack-validate.sh ."))
+    }
+
     /// The mod drops history no run has updated for as long as the shim keeps a build no checkout has run.
     @Test func historyIsKeptAsLongAsAnUnusedBuild() throws {
         let kept = try #require(try text("hooks/mod/timing.ts").firstMatch(of: /HISTORY_KEPT_MS = (\d+) \* 24 \* 60 \* 60_000/)?.1)
@@ -357,7 +365,6 @@ import Testing
         #expect(techpack.contains("script: mcs/configure.sh"))
         #expect(try text("mcs/configure.sh").contains("bin/xcrew\" setup"))
         #expect(techpack.contains("brew: getsentry/xcodebuildmcp/mobilebuildmcp"))
-        #expect(techpack.contains("plugin: \"xcrew@"))
     }
 
     // MARK: Plugin identity
@@ -372,6 +379,22 @@ import Testing
     @Test func theShimAndTheREADMEAgreeOnTheFirstBuildTime() throws {
         let range = try #require(try text("bin/xcrew").firstMatch(of: /building the CLI for this version \(once, (.+) s\)/)?.1)
         #expect(try text("README.md").contains("builds Xcrew's small Swift CLI, \(range) seconds, once per version"))
+    }
+
+    /// mcs loads the plugin in place from the pack's checkout, at the root, and refuses it unless plugin.json names it.
+    @Test func mcsLoadsThePluginFromThePack() throws {
+        #expect(try text("techpack.yaml").contains("plugin: \"xcrew@pack\"\n"))
+        #expect(try json(".claude-plugin/plugin.json")["name"] as? String == "xcrew")
+    }
+
+    /// mcs reads a change under an `ignore:` entry as noise and never says an update is out for it.
+    @Test func mcsNoticesEveryChangeToWhatThePluginRuns() throws {
+        let ignored = try text("techpack.yaml").firstMatch(of: /\nignore:\n((?:\s+(?:-|#).*\n)+)/).map { String($0.1) } ?? ""
+        let entries = ignored.matches(of: /- (\S+)/).map { String($0.1) }
+        #expect(!entries.isEmpty)
+        for runs in [".claude-plugin/", "Package.swift", "Sources/", "bin/", "libexec/", "hooks/", "skills/", "context/", "types/", "mcs/"] {
+            #expect(!entries.contains { runs.hasPrefix($0) || $0.hasPrefix(runs) }, "\(runs)")
+        }
     }
 
     @Test func pluginAndMarketplaceAgree() async throws {

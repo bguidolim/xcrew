@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- With mcs, the plugin now loads straight from the pack's checkout instead of a second copy from the marketplace, so it always matches the pack. It shows as `xcrew@mcs-xcrew` and starts with empty plugin data. Requires mcs 2026.10.30.
+
 ## 0.8.5 — 2026-10-29
 
 - The line above the prompt follows only its own run, so two sessions building in one checkout, or in two checkouts of folders with the same name, no longer show each other's progress.

@@ -6,10 +6,16 @@ import Testing
 @Suite struct PackValidateScriptTests {
     let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-    static let tapWarning = "[WARN] Component 'xcrew.mobilebuildmcp' installs 'getsentry/xcodebuildmcp/mobilebuildmcp' from third-party tap 'getsentry/xcodebuildmcp' — 'mcs sync' taps it without confirmation from Homebrew or mcs."
+    static func tapWarning(_ formula: String) -> String {
+        let tap = formula.split(separator: "/").prefix(2).joined(separator: "/")
+        return "[WARN] Component 'xcrew.x' installs '\(formula)' from third-party tap '\(tap)' — 'mcs sync' taps it without confirmation from Homebrew or mcs."
+    }
+
+    static let declaredTap = tapWarning("getsentry/xcodebuildmcp/mobilebuildmcp")
 
     func validate(_ report: [String], status: Int32 = 0) async throws -> (status: Int32, output: String, errors: String) {
         let root = FileManager.default.temporaryDirectory.appending(path: "xcrew-pack-validate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root.appending(path: "bin"), withIntermediateDirectories: true)
         try "components:\n  - id: mobilebuildmcp\n    brew: getsentry/xcodebuildmcp/mobilebuildmcp\n".write(to: root.appending(path: "techpack.yaml"), atomically: true, encoding: .utf8)
         try (report.joined(separator: "\n") + "\n").write(to: root.appending(path: "report.txt"), atomically: true, encoding: .utf8)
@@ -37,23 +43,16 @@ import Testing
 
     /// The pack can't move MobileBuildMCP off the tap Sentry publishes it from, so that advice is the one warning allowed.
     @Test func aCleanReportWithTheTapItDeclaresPasses() async throws {
-        let result = try await validate(["  xcrew", Self.tapWarning, "", "1 passed  1 warnings  0 issues"])
+        let result = try await validate(["  xcrew", Self.declaredTap, "", "1 passed  1 warnings  0 issues"])
         #expect(result.status == 0)
-        #expect(result.output.contains(Self.tapWarning))
+        #expect(result.output.contains(Self.declaredTap))
     }
 
-    @Test func anyOtherWarningFails() async throws {
-        let warning = "[WARN] docs/x.md is not referenced by any component or template"
-        let result = try await validate(["  xcrew", Self.tapWarning, warning, "", "1 passed  2 warnings  0 issues"])
+    @Test(arguments: ["[WARN] docs/x.md is not referenced by any component or template", tapWarning("someone/tap/x")])
+    func anyOtherWarningFails(_ warning: String) async throws {
+        let result = try await validate(["  xcrew", Self.declaredTap, warning, "", "1 passed  2 warnings  0 issues"])
         #expect(result.status == 1)
         #expect(result.errors == "mcs pack validate warned; CI treats a warning as an error:\n\(warning)\n")
-    }
-
-    @Test func aTapThePackDoesNotDeclareFails() async throws {
-        let other = "[WARN] Component 'xcrew.x' installs 'someone/tap/x' from third-party tap 'someone/tap' — 'mcs sync' taps it without confirmation from Homebrew or mcs."
-        let result = try await validate([other, "", "1 passed  1 warnings  0 issues"])
-        #expect(result.status == 1)
-        #expect(result.errors == "mcs pack validate warned; CI treats a warning as an error:\n\(other)\n")
     }
 
     @Test func anErrorFailsWithMCSsOwnStatus() async throws {

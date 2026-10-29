@@ -284,18 +284,11 @@ import Testing
 
     /// Only the weekly canary can tell a `stable` still settling after a release from one left behind, and only the
     /// newest Claude Code can say xcrew still reads its saved-result notice, whose wording isn't documented, and still
-    /// updates a plugin that follows a branch by its version.
-    @Test(arguments: ["scripts/stable-check.sh ", "scripts/saved-notice.sh ", "scripts/stable-follows.sh "])
+    /// updates a plugin that follows a branch by its version. The newest mcs can tighten what a pack may declare, as
+    /// `@pack` plugins did; strict on every pull request, one new warning would block them all.
+    @Test(arguments: ["scripts/stable-check.sh ", "scripts/saved-notice.sh ", "scripts/stable-follows.sh ", "scripts/pack-validate.sh "])
     func theCanaryRunsEachUpstreamCheck(_ script: String) throws {
         #expect(try text(".github/workflows/canary.yml").contains(script))
-    }
-
-    /// A new mcs release can tighten what a pack may declare, as `@pack` plugins did; users meet it on `mcs update`.
-    /// Only the canary runs it: the newest mcs, strict, would otherwise block every pull request on one new warning.
-    @Test func theCanaryValidatesThePackStrictlyWithTheNewestMCS() throws {
-        let canary = try text(".github/workflows/canary.yml")
-        #expect(canary.contains("brew install mcs-cli/tap/mcs"))
-        #expect(canary.contains("scripts/pack-validate.sh ."))
     }
 
     /// The mod drops history no run has updated for as long as the shim keeps a build no checkout has run.
@@ -406,10 +399,10 @@ import Testing
         #expect(try text("README.md").contains("builds Xcrew's small Swift CLI, \(range) seconds, once per version"))
     }
 
-    /// mcs loads the plugin in place from the pack's checkout, at the root, and refuses it unless plugin.json names it.
+    /// mcs loads the plugin in place from the pack's checkout, at the root, and refuses it unless plugin.json names it
+    /// as `pluginAndMarketplaceAgree` requires.
     @Test func mcsLoadsThePluginFromThePack() throws {
         #expect(try text("techpack.yaml").contains("plugin: \"xcrew@pack\"\n"))
-        #expect(try json(".claude-plugin/plugin.json")["name"] as? String == "xcrew")
     }
 
     /// mcs reads a change under an `ignore:` entry as noise and never says an update is out for it.
@@ -417,15 +410,28 @@ import Testing
         let ignored = try text("techpack.yaml").firstMatch(of: /\nignore:\n((?:\s+(?:-|#).*\n)+)/).map { String($0.1) } ?? ""
         let entries = ignored.matches(of: /- (\S+)/).map { String($0.1) }
         #expect(!entries.isEmpty)
-        for runs in [".claude-plugin/", "Package.swift", "Sources/", "bin/", "libexec/", "hooks/", "skills/", "context/", "types/", "mcs/"] {
-            #expect(!entries.contains { runs.hasPrefix($0) || $0.hasPrefix(runs) }, "\(runs)")
+        let manifests = try [".claude-plugin/plugin.json", "hooks/hooks.json"].map(text).joined()
+        let launched = manifests.matches(of: /\$\{CLAUDE_PLUGIN_ROOT\}\/([\w.-]+\/)/).map { String($0.1) }
+        let types = try #require((try json(".claude-plugin/plugin.json")["types"] as? String)?.split(separator: "/").dropFirst().first)
+        let packScripts = try text("techpack.yaml").matches(of: /(?:script|command): ([\w.-]+\/)/).map { String($0.1) }
+        // Claude Code's plugin layout, and what bin/xcrew builds from.
+        let fixed = [".claude-plugin/", "hooks/", "skills/", "Package.swift", "Sources/", "context/"]
+        let runs = Set(fixed + launched + packScripts + ["\(types)/"])
+        #expect(runs.isSuperset(of: ["bin/", "libexec/", "types/", "mcs/"]))
+        for path in runs {
+            #expect(!entries.contains { path.hasPrefix($0) || $0.hasPrefix(path) }, "\(path)")
         }
+    }
+
+    /// The branch the marketplace installs, which releases move.
+    func installedBranch() throws -> String {
+        let plugins = try #require(try json(".claude-plugin/marketplace.json")["plugins"] as? [[String: Any]])
+        return try #require((plugins.first?["source"] as? [String: String])?["ref"])
     }
 
     /// An mcs install runs the pack's checkout, so it follows the branch the marketplace installs only when added at it.
     @Test func mcsInstallsFollowTheBranchTheMarketplaceDoes() throws {
-        let plugins = try #require(try json(".claude-plugin/marketplace.json")["plugins"] as? [[String: Any]])
-        let branch = try #require((plugins.first?["source"] as? [String: String])?["ref"])
+        let branch = try installedBranch()
         let readme = try text("README.md")
         #expect(readme.contains("mcs pack add breferrari/xcrew --ref \(branch) && mcs sync"))
         #expect(readme.contains("`ref: \(branch)`"))
@@ -467,8 +473,7 @@ import Testing
     /// Every place that reads or moves the branch installs follow names the one the marketplace does.
     @Test(arguments: [".github/workflows/release.yml", ".github/workflows/canary.yml", "scripts/release.sh"])
     func everyPlaceNamesTheBranchInstallsFollow(_ file: String) throws {
-        let plugins = try #require(try json(".claude-plugin/marketplace.json")["plugins"] as? [[String: Any]])
-        let branch = try #require((plugins.first?["source"] as? [String: String])?["ref"])
+        let branch = try installedBranch()
         let text = try text(file)
         #expect(text.contains("refs/heads/\(branch)") || text.contains("...\(branch)"), "\(file)")
     }

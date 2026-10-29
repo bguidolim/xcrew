@@ -71,7 +71,7 @@ import XcrewTestSupport
     @Test(arguments: [".mcs/packs/xcrew", ".mcs/marketplaces/xcrew/plugins/xcrew"])
     func anOldMCSCheckoutIsToldToUpdateThroughMCS(_ path: String) async {
         let project = Project.temporary()
-        let root = project.root.appending(path: "home/\(path)").path
+        let root = CheckContext.fake(project: project).machine.home.appending(path: path).path
         #expect(await XcrewUpdateCheck().run(checkout(at: root, project: project, latest: "99.0.0")) == .warn("\(XcrewVersion.current) (5b646cc) installed, 99.0.0 released: mcs update"))
     }
 

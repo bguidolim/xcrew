@@ -7,7 +7,9 @@ rsvg-convert -z 2 $f.svg -o $f.png; done
 import sys
 from xml.sax.saxutils import escape
 
-OUT = sys.argv[1] if len(sys.argv) > 1 else "."
+# `--light` draws only the band, in a light theme's colours, as band-light.svg: a check that it reads on either.
+IS_LIGHT = "--light" in sys.argv
+OUT = next((arg for arg in sys.argv[1:] if not arg.startswith("--")), ".")
 FONT = "JetBrains Mono, JetBrainsMono Nerd Font Mono, SF Mono, Menlo, monospace"
 SIZE = 17
 CW = SIZE * 0.6  # monospace advance
@@ -19,6 +21,19 @@ C = {
     "text": "#e6e8eb", "subtle": "#8b929c", "inactive": "#323944", "success": "#3fb950", "error": "#f85149",
     "warning": "#d29922", "orange": "#ec501d", "blue": "#58a6ff", "label": "#a9afb9",
 }
+
+
+# A light theme's equivalents, for the band drawn as a light terminal shows it.
+LIGHT = {
+    "term": "#ffffff", "bar": "#f6f8fa", "border": "#d0d7de",
+    "text": "#1f2328", "subtle": "#6e7781", "inactive": "#d0d7de", "success": "#1a7f37", "error": "#cf222e",
+    "warning": "#9a6700", "orange": "#ec501d", "blue": "#0969da", "label": "#57606a",
+}
+
+if IS_LIGHT:
+    C.update(LIGHT)
+
+SEP = (" · ", "subtle")
 
 
 class Canvas:
@@ -92,13 +107,14 @@ def prompt_box(c, x, y, width):
 def band():
     c, x, y = frame(1280, 650, "claude — ~/Developer/MyApp")
     rows = [
-        ("WHILE IT RUNS", [("●", "orange"), (" ", "text"), ("test_sim", "text", "600"), (" · 0:41", "subtle"), (" ", "text"),
-                           ("@gauge", 8, 6.5, "success"), (" ~0:04 left", "subtle"), (" · testing 431 of 959", "subtle"), (" · MyApp on iPhone 17", "subtle")]),
-        ("WHEN IT PASSES", [("✓", "success"), (" ", "text"), ("test_sim", "text", "600"), (" · 1:12", "subtle"), (" (avg 1:05)", "orange"), (" · 959 passed", "subtle")]),
-        ("WHEN IT FAILS", [("✗", "error"), (" ", "text"), ("test_sim", "text", "600"), (" · 2:03", "subtle"), (" (avg 1:58)", "orange"),
-                           (" · 3 of 961 failed · PaymentsTests/test_refund()", "error")]),
-        ("WHEN A BUILD FAILS", [("✗", "error"), (" ", "text"), ("build_sim", "text", "600"), (" · 0:48", "subtle"),
-                                (" · CheckoutView.swift:12 Cannot find 'total' in scope", "error")]),
+        # Only the separators are faint, as in hooks/mod/band.ts: every value reads in the theme's text colour.
+        ("WHILE IT RUNS", [("●", "orange"), (" ", "text"), ("test_sim", "text", "600"), SEP, ("0:41", "text"), (" ", "text"),
+                           ("@gauge", 8, 6.5, "success"), (" ", "text"), ("~0:04 left", "text"), SEP, ("testing 431 of 959", "text"), SEP, ("MyApp on iPhone 17", "text")]),
+        ("WHEN IT PASSES", [("✓", "success"), (" ", "text"), ("test_sim", "text", "600"), SEP, ("1:12", "text"), (" (avg 1:05)", "orange"), SEP, ("959 passed", "text")]),
+        ("WHEN IT FAILS", [("✗", "error"), (" ", "text"), ("test_sim", "text", "600"), SEP, ("2:03", "text"), (" (avg 1:58)", "orange"), SEP,
+                           ("3 of 961 failed · PaymentsTests/test_refund()", "error")]),
+        ("WHEN A BUILD FAILS", [("✗", "error"), (" ", "text"), ("build_sim", "text", "600"), SEP, ("0:48", "text"), SEP,
+                                ("CheckoutView.swift:12 Cannot find 'total' in scope", "error")]),
     ]
     for label, segs in rows:
         c.text(x, y, label, "label", "600", size=12, font="Helvetica Neue", spacing="2.5")
@@ -229,6 +245,7 @@ def arch():
     return c
 
 
-for name, make in [("band", band), ("test-result", result), ("failures-pane", pane), ("architecture", arch)]:
+drawings = [("band-light", band)] if IS_LIGHT else [("band", band), ("test-result", result), ("failures-pane", pane), ("architecture", arch)]
+for name, make in drawings:
     with open(f"{OUT}/{name}.svg", "w") as f:
         f.write(make().svg())

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- With mcs, the plugin now loads straight from the pack's checkout instead of a second copy from the marketplace, so it always matches the pack. It shows as `xcrew@mcs-xcrew` and starts with empty plugin data. Requires mcs 2026.10.30.
+- With mcs, the plugin now loads straight from the pack's checkout instead of a second copy from the marketplace, so it always matches the pack. It shows as `xcrew@mcs-xcrew` and starts with empty plugin data. Requires mcs 2026.10.30. Add the pack with `mcs pack add breferrari/xcrew --ref stable` to get releases rather than unreleased code, and `xcrew doctor` now says `mcs update` for an mcs install.
 
 ## 0.8.5 — 2026-10-29
 

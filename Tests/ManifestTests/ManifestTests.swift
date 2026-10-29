@@ -397,6 +397,15 @@ import Testing
         }
     }
 
+    /// An mcs install runs the pack's checkout, so it follows the branch the marketplace installs only when added at it.
+    @Test func mcsInstallsFollowTheBranchTheMarketplaceDoes() throws {
+        let plugins = try #require(try json(".claude-plugin/marketplace.json")["plugins"] as? [[String: Any]])
+        let branch = try #require((plugins.first?["source"] as? [String: String])?["ref"])
+        let readme = try text("README.md")
+        #expect(readme.contains("mcs pack add breferrari/xcrew --ref \(branch) && mcs sync"))
+        #expect(readme.contains("`ref: \(branch)`"))
+    }
+
     @Test func pluginAndMarketplaceAgree() async throws {
         #expect(try json(".claude-plugin/plugin.json")["name"] as? String == "xcrew")
         let plugins = try #require(try json(".claude-plugin/marketplace.json")["plugins"] as? [[String: Any]])

@@ -21,9 +21,14 @@ struct XcrewUpdateCheck: Check {
         guard Version(XcrewVersion.current) < Version(latest) else {
             return .pass("\(installed), the latest release")
         }
-        let update = checkout == nil
-            ? "claude plugin update xcrew@breferrari, or turn on auto-update in /plugin → Marketplaces → breferrari"
-            : "git pull in \(context.machine.value("XCREW_ROOT") ?? ".")"
+        let root = context.machine.value("XCREW_ROOT") ?? "."
+        let update = if checkout == nil {
+            "claude plugin update xcrew@breferrari, or turn on auto-update in /plugin → Marketplaces → breferrari"
+        } else if root.hasPrefix(context.machine.home.appending(path: ".mcs").path + "/") {
+            "mcs update"
+        } else {
+            "git pull in \(root)"
+        }
         return .warn("\(installed) installed, \(latest) released: \(update)")
     }
 

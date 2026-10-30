@@ -62,10 +62,21 @@ function parse(text: string): Record<string, unknown> | undefined {
  */
 export function historyOf(tool: XcodeTool, input: Record<string, unknown>): string {
   const scheme = schemeOf(tool, input)
-  const extraArgs = Array.isArray(input.extraArgs) ? (input.extraArgs as unknown[]) : []
-  const tests = extraArgs.filter((arg): arg is string => typeof arg === 'string' && arg.startsWith('-only-testing:')).map(arg => arg.slice('-only-testing:'.length))
+  const tests = selectedTests(input)
   return `${tool.tool}${scheme ? ` · ${scheme}` : ''}${tests.length > 0 ? ` › ${tests.join(', ')}` : ''}`
 }
+
+/** The tests a run's `-only-testing:` arguments select; none when it runs its scheme's whole suite. */
+export function selectedTests(input: Record<string, unknown>): string[] {
+  const extraArgs = Array.isArray(input.extraArgs) ? (input.extraArgs as unknown[]) : []
+  return extraArgs.filter((arg): arg is string => typeof arg === 'string' && arg.startsWith('-only-testing:')).map(arg => arg.slice('-only-testing:'.length))
+}
+
+/**
+ * `xcodebuild` options that narrow a test run to part of its scheme or run its tests more than once, besides
+ * `-only-testing:`, `-skip-testing:` and `-test-iterations`. A fixed list, as `man xcodebuild` names them; a test pins it.
+ */
+export const NARROWING_OR_REPEATING = ['-only-test-configuration', '-skip-test-configuration', '-testPlan', '-retry-tests-on-failure', '-run-tests-until-failure']
 
 /**
  * Whether a test run ran every test its scope names, so a pass in it is a pass of each: not one that skips some
@@ -80,4 +91,14 @@ export function runsWholeScope(tool: XcodeTool, input: Record<string, unknown>):
 /** Whether a test run repeats each test (`-test-iterations`), so its result bundle holds each test's runs to read. */
 export function isRepeatedRun(input: Record<string, unknown>): boolean {
   return Array.isArray(input.extraArgs) && input.extraArgs.includes('-test-iterations')
+}
+
+/**
+ * Whether a test run is the whole suite: it ran every test its tool and scheme name, with no `-only-testing:` selection,
+ * once each. What the loop budget counts.
+ */
+export function isFullSuiteRun(tool: XcodeTool, input: Record<string, unknown>): boolean {
+  const extraArgs = Array.isArray(input.extraArgs) ? (input.extraArgs as unknown[]) : []
+  const narrows = extraArgs.some(arg => typeof arg === 'string' && NARROWING_OR_REPEATING.includes(arg))
+  return selectedTests(input).length === 0 && !narrows && !isRepeatedRun(input) && runsWholeScope(tool, input)
 }

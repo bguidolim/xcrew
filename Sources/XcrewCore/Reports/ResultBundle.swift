@@ -173,9 +173,15 @@ public struct ResultBundle: Sendable {
 
     /// `: A, B and C`, or `: A, B, C, D, E and 2 more`; nothing without names.
     static func listed(_ names: [String], separator: String = ", ") -> String {
+        names.isEmpty ? "" : ": " + joined(names, separator: separator)
+    }
+
+    /// Names one after another, `a, b and c`, a few at most and the rest counted; with `or`, `a, b or c`.
+    static func joined(_ names: [String], separator: String = ", ", or: Bool = false) -> String {
         guard let last = names.last else { return "" }
-        if names.count > mostNamed { return ": " + names.prefix(mostNamed).joined(separator: separator) + " and \(names.count - mostNamed) more" }
-        return names.count == 1 ? ": \(last)" : ": " + names.dropLast().joined(separator: separator) + " and \(last)"
+        let conjunction = or ? " or " : " and "
+        if names.count > mostNamed { return names.prefix(mostNamed).joined(separator: separator) + conjunction + "\(names.count - mostNamed) more" }
+        return names.count == 1 ? last : names.dropLast().joined(separator: separator) + conjunction + last
     }
 
     // MARK: Asking xcresulttool
@@ -216,13 +222,18 @@ public struct ResultBundle: Sendable {
         Self.parse(await xccov(["--file-list", "--json"])) as? [String] ?? []
     }
 
+    /// Each target's files and how many of its lines ran, as `xccov view --report --json` gives them; empty when it can't.
+    func coverageReport() async -> String {
+        await xccov(["--report", "--json"], archive: false)
+    }
+
     /// One file's line counts, as `xccov` gives them.
     func coverage(of file: String) async -> String {
         await xccov(["--file", file, "--json"])
     }
 
-    func xccov(_ arguments: [String]) async -> String {
-        let ran = await runner.run(["xcrun", "xccov", "view", "--archive"] + arguments + [path], stdin: nil, timeout: .seconds(15))
+    func xccov(_ arguments: [String], archive: Bool = true) async -> String {
+        let ran = await runner.run(["xcrun", "xccov", "view"] + (archive ? ["--archive"] : []) + arguments + [path], stdin: nil, timeout: .seconds(15))
         return ran.succeeded ? ran.stdout : ""
     }
 

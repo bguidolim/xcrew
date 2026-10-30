@@ -29,17 +29,18 @@ import XcrewTestSupport
 
     /// A project whose branch changed lines 4 to 7 of `Cart.swift` and all of `CartView.swift` and `README.md`, and a
     /// test run whose coverage holds `Cart.swift` alone, named as the build was started: by the project's `/var` path.
-    func run(_ project: Project, coverage: Bool = true, counts: [Int?] = [1, nil, 0, 2]) -> FakeRunner {
+    func run(_ project: Project, coverage: Bool = true, counts: [Int?] = [1, nil, 0, 2], listed extra: [String] = [], changed: [String] = [], report: String? = nil) -> FakeRunner {
         let cart = "\(project.root.path)/Sources/Cart/Cart.swift"
         let lines = counts.enumerated().map { index, count in
             count.map { #"{"executionCount":\#($0),"isExecutable":true,"line":\#(index + 4)}"# } ?? #"{"isExecutable":false,"line":\#(index + 4)}"#
         }
-        var responses = FakeRunner.branch(at: project.root, changed: ["Sources/Cart/Cart.swift", "Sources/Cart/CartView.swift", "README.md"], diffed: ["\(ProjectLayout.canonical(project.root))/Sources/Cart/Cart.swift"], diff: "+++ Sources/Cart/Cart.swift\n@@ -3,0 +4,4 @@\n")
+        var responses = FakeRunner.branch(at: project.root, changed: ["Sources/Cart/Cart.swift", "Sources/Cart/CartView.swift", "README.md"] + changed, diffed: ["\(ProjectLayout.canonical(project.root))/Sources/Cart/Cart.swift"], diff: "+++ Sources/Cart/Cart.swift\n@@ -3,0 +4,4 @@\n")
         responses.merge([
             // Without coverage, xccov says "No coverage data in result bundle" and fails.
-            "xcrun xccov view --archive --file-list --json \(Self.bundle)": coverage ? .init(status: 0, stdout: #"["\#(cart.replacingOccurrences(of: "/", with: "\\/"))"]"#) : .init(status: 1),
+            "xcrun xccov view --archive --file-list --json \(Self.bundle)": coverage ? .init(status: 0, stdout: #"[\#(([cart] + extra).map { #""\#($0.replacingOccurrences(of: "/", with: "\\/"))""# }.joined(separator: ","))]"#) : .init(status: 1),
             "xcrun xccov view --archive --file \(cart) --json \(Self.bundle)": .init(status: 0, stdout: #"{"\#(cart)":[\#(lines.joined(separator: ","))]}"#),
         ]) { _, new in new }
+        if let report { responses["xcrun xccov view --report --json \(Self.bundle)"] = .init(status: 0, stdout: report) }
         return FakeRunner(responses: responses)
     }
 
@@ -106,6 +107,77 @@ import XcrewTestSupport
         #expect(found == "xcrew: 2 of 3 changed lines that can run ran in this test run. Not run: Cart.swift:6. 1 changed file isn't in this run's coverage: CartView.swift.")
     }
 
+    /// A run of no tests ran none of the changed lines, as its coverage says, but says nothing of them: no note.
+    @Test func aRunOfNoTestsHasNoNote() async {
+        let project = project()
+        let none = Captured.text("mobileTestsPassed").replacingOccurrences(of: #""passed":3"#, with: #""passed":0"#)
+        let report = await Report.make(kind: .test, output: ToolOutput(text: none, server: .mobileBuildMCP), home: Captured.home, runner: run(project, counts: [0, nil, 0, 0]), project: project)
+        #expect(report.tests == 0)
+        #expect(!report.notes.contains { $0.contains("changed line") || $0.contains("changed file") })
+    }
+
+    /// xccov's report, each target with how many of its lines ran and its files, by path.
+    static func report(_ targets: [(name: String, covered: Int, files: [String])], executable: Int = 10) -> String {
+        let listed = targets.map { target in
+            #"{"name":"\#(target.name)","coveredLines":\#(target.covered),"executableLines":\#(executable),"files":[\#(target.files.map { #"{"name":"\#(ToolOutput.basename($0))","path":"\#($0)"}"# }.joined(separator: ","))]}"#
+        }
+        return #"{"coveredLines":5,"executableLines":20,"targets":[\#(listed.joined(separator: ","))]}"#
+    }
+
+    /// A test bundle's files are the tests, not the code they test: a changed test file is neither counted nor named.
+    @Test func aTestBundlesFilesAreLeftOut() async {
+        let project = project()
+        project.write("final class CartTests {}\n", to: "Sources/Cart/CartTests.swift")
+        let cart = "\(project.root.path)/Sources/Cart/Cart.swift", tests = "\(project.root.path)/Sources/Cart/CartTests.swift"
+        let report = Self.report([("Cart.framework", 2, [cart]), ("CartTests.xctest", 5, [tests])])
+        #expect(await note(project, run(project, listed: [tests], changed: ["Sources/Cart/CartTests.swift"], report: report)) == "xcrew: 2 of 3 changed lines that can run ran in this test run. Not run: Cart.swift:6. 1 changed file isn't in this run's coverage: CartView.swift.")
+    }
+
+    /// A target none of whose lines ran wasn't reached by the run, as a filter leaves one out: it's said once, not its
+    /// changed lines one by one.
+    @Test func aTargetTheRunDidNotReachIsSaidOnce() async {
+        let project = project()
+        let report = Self.report([("Cart.framework", 0, ["\(project.root.path)/Sources/Cart/Cart.swift"])])
+        #expect(await note(project, run(project, counts: [0, nil, 0, 0], report: report)) == "xcrew: this test run ran nothing in Cart, where 1 changed file is. 1 changed file isn't in this run's coverage: CartView.swift.")
+    }
+
+    /// A file built into the app and into its test bundle too, as some projects add sources to a test target, is the
+    /// app's code: it counts as the app's target was reached.
+    @Test func aFileInTheAppAndItsTestBundleCounts() async {
+        let project = project()
+        let cart = "\(project.root.path)/Sources/Cart/Cart.swift"
+        let report = Self.report([("Cart.app", 2, [cart]), ("CartTests.xctest", 5, [cart])])
+        #expect(await note(project, run(project, report: report)) == "xcrew: 2 of 3 changed lines that can run ran in this test run. Not run: Cart.swift:6. 1 changed file isn't in this run's coverage: CartView.swift.")
+    }
+
+    /// A target the run didn't reach after lines that ran: its own sentence, its file not named again as outside.
+    @Test func aTargetNotReachedAfterLinesThatRanIsItsOwnSentence() async {
+        let project = project()
+        let report = Self.report([("Cart.framework", 2, ["\(project.root.path)/Sources/Cart/Cart.swift"]), ("Widget.appex", 0, ["\(project.root.path)/Sources/Cart/CartView.swift"])])
+        #expect(await note(project, run(project, report: report)) == "xcrew: 2 of 3 changed lines that can run ran in this test run. Not run: Cart.swift:6. This test run ran nothing in Widget, where 1 changed file is.")
+    }
+
+    /// A target with no line that can run, such as one of protocols and types alone, had nothing to run: it isn't one the
+    /// run didn't reach.
+    @Test func aTargetWithNoLineThatCanRunIsNotUnreached() async {
+        let project = project()
+        let report = Self.report([("Cart.framework", 0, ["\(project.root.path)/Sources/Cart/Cart.swift"])], executable: 0)
+        #expect(await note(project, run(project, counts: [nil, nil, nil, nil], report: report)) == "xcrew: 1 changed file isn't in this run's coverage: CartView.swift.")
+    }
+
+    /// A package's report names its test target without the bundle's extension, `ShapeTests`; its product is the
+    /// bundle, as Xcode 27.2's xccov gave it on October 30, 2026.
+    @Test func aPackagesTestTargetIsToldByItsProduct() {
+        let targets = CoverageTarget.targets(in: #"{"targets":[{"name":"ShapeTests","buildProductPath":"\/d\/Build\/Products\/Debug\/ShapeTests.xctest\/Contents\/MacOS\/ShapeTests","coveredLines":3,"executableLines":3,"files":[{"path":"\/p\/Tests\/ShapeTests\/ShapeTests.swift"}]}]}"#)
+        #expect(targets.map(\.isTests) == [true])
+    }
+
+    /// One target in a shape xcrew doesn't read leaves the others read.
+    @Test func anOddTargetLeavesTheOthersRead() {
+        let targets = CoverageTarget.targets(in: #"{"targets":[{"name":"A.framework"},{"name":"B.xctest","coveredLines":1,"executableLines":2,"files":[{"path":"\/b"}]}]}"#)
+        #expect(targets.map(\.name) == ["B.xctest"])
+    }
+
     @Test func withoutCoverageThereIsNoNote() async {
         let project = project()
         #expect(await note(project, run(project, coverage: false)) == nil)
@@ -128,5 +200,8 @@ struct LiveCoverageShapeTests {
         let file = try #require(files.first, "no file in the coverage archive")
         let lines = ChangedLineCoverage.lines(await bundle.coverage(of: file))
         #expect(lines?.values.contains(true) == true, "no line of \(file) read as run: \(String(describing: lines))")
+        let targets = CoverageTarget.targets(in: await bundle.coverageReport())
+        #expect(targets.contains { $0.isTests && !$0.files.isEmpty }, "no test bundle with its files in xccov's report: \(targets)")
+        #expect(targets.contains { $0.files.contains { ProjectLayout.canonicalPath($0.path) == ProjectLayout.canonicalPath(file) } }, "\(file) isn't in any target of xccov's report: \(targets)")
     }
 }

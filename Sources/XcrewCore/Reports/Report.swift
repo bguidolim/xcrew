@@ -145,7 +145,8 @@ public struct Report: Sendable, Equatable, Codable {
             return await ChangedLines.warnings(warnings, in: listed, project: project, using: runner)
         }()
         async let coverage: ChangedLineCoverage? = {
-            guard let project, let bundle else { return nil }
+            // A run of no tests ran none of the changed lines, which says nothing of them.
+            guard let project, let bundle, read.testTotal != 0 else { return nil }
             return await ChangedLineCoverage.of(bundle, change: { await change.value() }, project: project, using: runner)
         }()
         async let why: String? = {

@@ -90,7 +90,24 @@ struct SetupCommand: Command {
         let simulatorIDs = [answers.testSimulator, answers.appSimulator].reduce(into: [String: String]()) { ids, name in
             ids[name] = catalog.udid(of: name)
         }
-        switch try ConfigWriter.write(answers, to: context.project, simulatorIDs: simulatorIDs, force: invocation.arguments.has("force")) {
+        let installed = catalog.iPhoneNames.joined(separator: ", ")
+        let missing = [(answers.testSimulator, "test-simulator"), (answers.appSimulator, "app-simulator")].filter { simulatorIDs[$0.0] == nil }
+        if !catalog.devices.isEmpty, !missing.isEmpty {
+            let runtimes = Data(await context.runner.run("xcrun", "simctl", "list", "runtimes", "--json").stdout.utf8)
+            var named: Set<String> = []
+            for (name, option) in missing where named.insert(name).inserted {
+                let add = SimulatorCatalog.createCommand(for: name, runtimes: runtimes).map { "create it with \($0)" } ?? "add it in Xcode"
+                notes.append(installed.isEmpty
+                    ? "xcrew: no simulator named \(name) is installed, and no iPhone simulator is: \(add)"
+                    : "xcrew: no simulator named \(name) is installed (installed iPhones: \(installed)): \(add), or rerun with --\(option) and one of those")
+            }
+        }
+        let carried = (try? String(contentsOf: context.project.mobileBuildMCPConfig, encoding: .utf8)).map(CarriedDefaults.init) ?? CarriedDefaults()
+        let carriedKeys = carried.keys(for: answers.profileNames)
+        if !carriedKeys.isEmpty, ConfigWriter.keeping(context.project) != nil {
+            notes.append("xcrew: carried \(carriedKeys.joined(separator: ", ")) from the old config into " + (answers.profileNames.isEmpty ? "the session defaults" : "each profile"))
+        }
+        switch try ConfigWriter.write(answers, to: context.project, simulatorIDs: simulatorIDs, carried: carried, force: invocation.arguments.has("force")) {
         case .keptEdited:
             invocation.print("xcrew: .mobilebuildmcp/config.yaml was edited after xcrew wrote it; left as is (--force replaces it, keeping a backup)")
         case .keptUnmanaged:

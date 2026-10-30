@@ -726,6 +726,42 @@ import Testing
         #expect(kept == shim)
     }
 
+    /// The card the session-start hook prints is dropped by the same age as the mod's history: one number of days.
+    @Test func theCardIsKeptAsLongAsTheHistory() throws {
+        let kept = try #require(try text("hooks/mod/timing.ts").firstMatch(of: /HISTORY_KEPT_MS = (\d+) \* 24 \* 60 \* 60_000/)?.1)
+        #expect(Int(kept) == ProjectCard.keptDays)
+    }
+
+    /// The mod writes the card in the format the CLI reads: its version and its fields.
+    @Test func theCardsFormatIsTheCLIs() throws {
+        let card = try text("hooks/mod/card.ts")
+        let version = try #require(card.firstMatch(of: /CARD_VERSION = (\d+)/)?.1)
+        #expect(Int(version) == ProjectCard.version)
+        let type = try #require(card.firstMatch(of: /export type SavedCard = \{([^}]*)\}/)?.1)
+        let fields = Set(type.matches(of: /(\w+)\??:/).map { String($0.1) })
+        let entry = ProjectCard.Entry(folder: "", branch: "", updated: 0, text: nil)
+        #expect(fields == Set(Mirror(reflecting: entry).children.compactMap(\.label)))
+    }
+
+    /// The card is filed under the branch as the mod's ledger names it: the branch, else `commit <sha>`.
+    @Test func theCardsBranchIsTheLedgers() throws {
+        let label = try #require(try text("hooks/mod/ledger.ts").firstMatch(of: /(?s)export function label\(head: Head, isShort: boolean\): string \{(.*?)\n\}/)?.1)
+        #expect(label.contains("if (head.branch) return head.branch"))
+        #expect(label.contains("if (head.commit) return `commit ${isShort ? head.commit.slice(0, 12) : head.commit}`"))
+        #expect(ProjectCard.branchKey(.branch("main")) == "main")
+        #expect(ProjectCard.branchKey(.commit("0123456789abcdef0123")) == "commit 0123456789abcdef0123")
+    }
+
+    /// On a Team plan Claude Code's own security plugin seats itself outermost and passes over a user plugin's prompt
+    /// hooks (prompt.context, prompt.section, prompt.attachment) and its classic.* ones, so the mod registers none: the
+    /// card reaches Claude through the session-start hook (docs/findings.md, *Prompt hooks a plugin can't count on*).
+    @Test func theModRegistersNoPromptOrClassicHook() throws {
+        let register = try text("hooks/mod/register.ts")
+        let events = register.matches(of: /on\('([\w.]+)'/).map { String($0.1) }
+        #expect(!events.isEmpty)
+        #expect(events.filter { ["prompt.context", "prompt.section", "prompt.attachment"].contains($0) || $0.hasPrefix("classic.") } == [])
+    }
+
     /// The band puts the doctor's restart warning first and keeps it until done, by that check's id.
     @Test func theModKnowsTheRestartCheck() throws {
         #expect(try text("hooks/mod/problems.ts").contains("export const RESTART_CHECK = '\(ConfigLoadedCheck().id)'"))

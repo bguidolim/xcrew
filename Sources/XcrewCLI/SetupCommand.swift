@@ -18,14 +18,14 @@ struct SetupCommand: Command {
 
     let name = "setup"
     var valuedOptions: Set<String> { Set(Self.mcsKeys.keys).union(["debugger-backend"]) }
-    let flags: Set<String> = ["force", "worktree", "no-simulator"]
+    let flags: Set<String> = ["force", "worktree", "no-simulator", "fresh-simulator"]
     let usage = [
         "setup [--container NAME] [--test-simulator NAME] [--app-simulator NAME]",
         "      [--app-scheme NAME] [--bundle-id ID] [--ui-scheme NAME] [--test-scheme NAME]",
         "      [--debugger-backend dap|lldb-cli] [--force]",
         "      write .mobilebuildmcp/config.yaml; simulators default to the newest iPhone installed,",
         "      and the test scheme to the shared scheme that runs unit tests",
-        "setup --worktree [--force] [--no-simulator]   in a linked git worktree, write its config from the main checkout's, with a simulator of its own unless --no-simulator",
+        "setup --worktree [--force] [--no-simulator | --fresh-simulator]   in a linked git worktree, write its config from the main checkout's, with simulators of its own, cloned from the main checkout's while they're shut down unless --fresh-simulator; --no-simulator shares the main checkout's",
     ]
 
     /// The container setup builds when no option names one: mcs's answer, else the default below.
@@ -57,8 +57,8 @@ struct SetupCommand: Command {
     func run(_ invocation: Invocation) async throws -> Int32 {
         let context = invocation.context
         if invocation.arguments.has("worktree") { return try await worktree(invocation) }
-        if invocation.arguments.has("no-simulator") {
-            throw UsageError(description: "setup --no-simulator goes with --worktree: plain setup makes no simulator")
+        for flag in ["no-simulator", "fresh-simulator"] where invocation.arguments.has(flag) {
+            throw UsageError(description: "setup --\(flag) goes with --worktree: plain setup makes no simulator")
         }
         func answer(_ option: String) -> String? {
             invocation.arguments[option] ?? Self.mcsKeys[option].flatMap { context.machine.value("MCS_RESOLVED_\($0)") }
@@ -152,7 +152,10 @@ struct SetupCommand: Command {
     func worktree(_ invocation: Invocation) async throws -> Int32 {
         let context = invocation.context
         guard invocation.arguments.values.isEmpty else {
-            throw UsageError(description: "setup --worktree takes no option but --force and --no-simulator: the profiles are the main checkout's")
+            throw UsageError(description: "setup --worktree takes no option but --force, --no-simulator and --fresh-simulator: the profiles are the main checkout's")
+        }
+        if invocation.arguments.has("no-simulator"), invocation.arguments.has("fresh-simulator") {
+            throw UsageError(description: "setup --worktree takes --no-simulator or --fresh-simulator, not both")
         }
         guard let checkout = await Worktree.checkout(of: context.project, using: context.runner) else {
             throw UsageError(description: "setup --worktree runs in a linked git worktree; this is a main checkout, or not in git")
@@ -167,7 +170,7 @@ struct SetupCommand: Command {
         var simulators: [String] = []
         if !invocation.arguments.has("no-simulator"), force || ConfigWriter.keeping(context.project) == nil {
             let worktreeTop = checkout.prefix.split(separator: "/").reduce(context.project.root) { folder, _ in folder.deletingLastPathComponent() }
-            (config, simulators) = await WorktreeSimulator.make(for: worktreeTop, main: checkout.main, config: config, using: context.runner)
+            (config, simulators) = await WorktreeSimulator.make(for: worktreeTop, main: checkout.main, config: config, fresh: invocation.arguments.has("fresh-simulator"), using: context.runner)
         }
         let outcome = try ConfigWriter.write(config, to: context.project, force: force)
         Self.report(outcome, in: invocation, written: ["xcrew: wrote .mobilebuildmcp/config.yaml from the main checkout's (\(main.path)); restart Claude Code so MobileBuildMCP reads it"]

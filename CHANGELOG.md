@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- When Claude builds or tests a project MobileBuildMCP has no scheme for yet, it's told to offer `/xcrew:setup`, once per conversation. The conversation's opening note says so too, now also when MobileBuildMCP saved a config of its own without one. The README now says that with mcs you run `/xcrew:setup` once after `mcs sync`.
+
 ## 0.9.0 — 2026-10-30
 
 - When Claude runs the whole test suite again and again in a short while, the run that makes it a habit tells Claude to run only the tests the change can break, and the whole suite again before the pull request. A fast suite never hears it.

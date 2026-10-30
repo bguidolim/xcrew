@@ -439,6 +439,14 @@ import XcrewTestSupport
         #expect(await Run("project", "--setup", context: .fake(project: project)).text == #"{"container":"App.xcodeproj","isGenerated":false}"#)
     }
 
+    /// The mod asks after a build whether to offer setup, and says the briefing's own line when it should.
+    @Test func profilesSaysToOfferSetupUntilASchemeCanBuild() async {
+        let project = Project.temporary(containing: ["App.xcodeproj"])
+        #expect(await Run("project", "--profiles", context: .fake(project: project)).text == #"{"isGenerated":false,"setup":"MobileBuildMCP has no scheme to build this project with yet: before the first build or test, offer `/xcrew:setup`, which writes its profiles once from the project's schemes and simulators."}"#)
+        project.write(ConfigRenderer.render(.init(container: "App.xcodeproj", testSimulator: "iPhone 17", testScheme: "AppTests"), root: project.root), to: ".mobilebuildmcp/config.yaml")
+        #expect(await Run("project", "--profiles", context: .fake(project: project)).text == #"{"isGenerated":false}"#)
+    }
+
     /// Setup builds the container mcs resolved, so the answer the skill reads names the same one.
     @Test func anMCSAnswerIsTheContainerSetupWillBuild() async {
         let project = Project.temporary(containing: ["App.xcodeproj"])

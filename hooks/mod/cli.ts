@@ -99,6 +99,12 @@ export function isGeneratedOf(answer: unknown): boolean {
   return (answer as { isGenerated?: boolean } | undefined)?.isGenerated === true
 }
 
+/** The line offering setup, as `xcrew project --profiles` answers while MobileBuildMCP has no scheme to build with. */
+export function setupOfferOf(answer: unknown): string | undefined {
+  const setup = (answer as { setup?: unknown } | undefined)?.setup
+  return typeof setup === 'string' && setup !== '' ? setup : undefined
+}
+
 /** The app an edit changed and the command that regenerates it, when the file `xcrew project --manifest` was asked about is a manifest. */
 export function manifestEditOf(answer: unknown): { app: string; generate: string } | undefined {
   const { app, generate } = (answer ?? {}) as { app?: unknown; generate?: unknown }

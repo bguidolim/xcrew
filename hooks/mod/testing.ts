@@ -21,7 +21,7 @@ export function submitPrompt($: Engine, text: string) {
 }
 
 /** What `xcrew project` answers: with `--manifest`, the command that regenerates the project when the file is a manifest. */
-type ProjectAnswer = { isGenerated: boolean; generate?: string; app?: string }
+type ProjectAnswer = { isGenerated: boolean; generate?: string; app?: string; root?: string; branch?: string; commit?: string }
 
 /** One call the mod made to the Swift CLI: its arguments, what it piped in, and the program when it wasn't the shim. */
 export type CliCall = { args: readonly string[]; stdin?: string; program?: string; timeoutMs?: number }
@@ -43,6 +43,8 @@ export function stubCli(
     problems?: Problem[]
     /** The doctor can't run: the shim is building, or it timed out. */
     doctorFails?: () => boolean
+    /** The report can't be read: the CLI timed out, or the shim couldn't build. */
+    reportFails?: () => boolean
     project?: ProjectAnswer | ((args: readonly string[]) => ProjectAnswer)
     noBuild?: boolean
     build?: { fails: 'to start' } | { fails: 'by timing out'; clock: { advance: (ms: number) => Promise<void> } }
@@ -56,6 +58,7 @@ export function stubCli(
     const timeoutMs = e.init?.timeoutMs
     calls.push({ args, ...(e.init?.stdin === undefined ? {} : { stdin: e.init.stdin }), ...(program.endsWith('/bin/xcrew') ? {} : { program }), ...(timeoutMs === undefined ? {} : { timeoutMs }) })
     if (args[0] === 'doctor' && answers.doctorFails?.()) throw new Error('timed out')
+    if (args[0] === 'report' && answers.reportFails?.()) throw new Error('timed out')
     if (program === BUILT_BINARY && answers.build) {
       if (answers.build.fails === 'by timing out') await answers.build.clock.advance(timeoutMs ?? 30_000)
       throw new Error(answers.build.fails === 'to start' ? 'spawn ENOENT' : 'timed out')

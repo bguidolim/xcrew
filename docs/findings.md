@@ -213,6 +213,21 @@ XcodeGen reads every spec its spec includes, so an edit to one marks the project
 
 xcrew reads only the top-level `include` key, in those documented forms, with no YAML dependency. It resolves includes the same way. An include whose path holds a variable, or whose `enable` isn't a literal, is left out, since it depends on the environment at generate time. JSON specs are out of scope: detection doesn't find a `project.json`, and the mod doesn't ask about a JSON spec a YAML spec includes. The CLI tests pin each case. Since a spec can include another by any name, the mod asks the CLI about every YAML file edited.
 
+## The red-to-green ledger
+
+The mod gives Claude the ledger through a tool of its own, registered with `$.tool.register`. The engine's types (Claude Code 2.1.312, read October 30, 2026) say:
+- the model "calls it as `mcp__<plugin>__<name>`", hence `mcp__xcrew__ledger`, which the hook answering it matches by that literal;
+- of `isDeferred`: "Left out, the engine's rule places it: behind ToolSearch, as it places an MCP server's tool." The mod leaves it out, so the tool costs a session nothing until Claude searches for it.
+
+A ledger is kept per branch, in `$.store`, under the project's real root and the branch `git symbolic-ref` names. With HEAD detached it is kept under the commit, which a later checkout of a branch never meets again: no attempt is made to carry it over.
+
+A run turns a red green when it ran the test without failing it:
+- It must cover the scope where the test fails now: the same tool, scheme and selection, or that tool and scheme's whole suite.
+- It must have run every test its scope names. A run with `-skip-testing:` hasn't. Nor has an Xcode MCP test run other than its run of all tests: those tools take their selection in arguments the scope doesn't read, so two `RunSomeTests` runs of different tests would share a scope.
+- A failing run counts as well, for the reds it ran that aren't among its failures, as long as it got as far as running tests.
+
+A run whose report the CLI couldn't read is left out, since its outcome would be a guess. Writes happen after the run's result goes back to Claude, one after another, and reading the ledger waits for them.
+
 ## Toolchains
 
 On October 29, 2026, Swift 6.4.2 (Xcode 27.2 beta 3) on a contributor's Mac accepted a task-group closure that captured a local `Mutex`. CI's Swift job, on the newest Xcode of the `macos-26` runner, rejected it as a `sending` closure that risks a data race. The two compilers don't agree on every concurrency check, so a change that builds locally can still fail CI, and CI's answer is the one that counts. The `macos-26` runner image (version 20261013.0424.1) carries Xcode 26.0.1 to 26.6, and Apple's [Xcode system requirements](https://developer.apple.com/xcode/system-requirements/) put Swift 6.2 in Xcode 26.0 and 26.0.1, 6.2.1 to 6.2.3 in 26.1 to 26.3, and 6.3 in 26.4.1 to 26.6. So CI's newest toolchain was Swift 6.3, older than the contributor's 6.4.2. Each Swift job now prints its toolchain, and a floor job builds and tests on the oldest Xcode whose Swift is the version `Package.swift`'s `swift-tools-version` names.

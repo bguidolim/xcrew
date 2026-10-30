@@ -108,6 +108,26 @@ import Testing
         }
     }
 
+    /// Every field of a failure the CLI reports is one the mod's type for it names: a field it doesn't name is one the
+    /// ledger and the pane never read.
+    @Test func theModsFailureTypeNamesEachFieldTheCLIReports() throws {
+        let failure = ToolOutput.Failure(title: "T", message: "M", where: "W", isTest: true)
+        let keys = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(failure)) as? [String: Any]).keys
+        let items = try #require(try text("types/index.d.ts").firstMatch(of: /items: \{([^}]*)\}\[\]/)?.1)
+        for key in keys {
+            #expect(items.contains("\(key)?:") || items.contains("\(key):"), "types/index.d.ts doesn't name `\(key)`")
+        }
+    }
+
+    /// The hook answering the ledger tool matches the name Claude calls it by: `mcp__<plugin>__<name>`, from the plugin's
+    /// name and the name the mod registers. A rename of either would leave every call unanswered.
+    @Test func theLedgerToolsHookMatchesItsRegisteredName() throws {
+        let ledger = try text("hooks/mod/ledger.ts")
+        let plugin = try #require(try json(".claude-plugin/plugin.json")["name"] as? String)
+        let name = try #require(ledger.firstMatch(of: /export const LEDGER_TOOL = \{\n  name: '(\w+)'/)?.1)
+        #expect(ledger.contains("export const LEDGER_TOOL_NAME = 'mcp__\(plugin)__\(name)'"))
+    }
+
     /// The plugin's MCP servers, by name, as the manifest declares them.
     func servers() throws -> [String: [String: Any]] {
         try #require(try json(".claude-plugin/plugin.json")["mcpServers"] as? [String: [String: Any]])

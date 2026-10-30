@@ -19,6 +19,9 @@ public struct Report: Sendable, Equatable, Codable {
     public var notes: [String]
     /// For a run repeated with `-test-iterations`: each repeated test, and how many of its runs failed.
     public var repeated: [ResultBundle.Repeated]?
+    /// A build or test call whose result holds nothing in its server's own forms, and isn't an error: a call Claude moved
+    /// to the background answers with Claude Code's handle, not the server's result. Absent otherwise.
+    public var isUnread: Bool?
 
     /// The warnings in lines the branch changed, a few named; nothing when there are none.
     static func warningsNote(_ inChanged: [ToolOutput.Warning], of total: Int) -> String? {
@@ -148,7 +151,8 @@ public struct Report: Sendable, Equatable, Codable {
             failures: summary.ok ? [] : final.failures,
             result: compact ?? (edited ? final.text : nil),
             notes: notes,
-            repeated: repeatedTests
+            repeated: repeatedTests,
+            isUnread: kind != .run && !final.isError && final.isNotTheServers ? true : nil
         )
     }
 }

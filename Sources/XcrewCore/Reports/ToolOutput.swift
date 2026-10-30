@@ -79,14 +79,29 @@ public struct ToolOutput: Sendable {
     static let noTestsRan = "no tests ran"
 
     public var summary: Summary {
-        let found: Summary? = switch shape {
+        guard let found = foundSummary else { return Summary(ok: !isError) }
+        return Summary(ok: found.ok, detail: found.detail.map(Self.shorten))
+    }
+
+    /// Whether the text holds nothing in its server's own forms: no JSON shape it uses, and from MobileBuildMCP not one
+    /// line of the kinds it writes. A call moved to the background answers with such a text, Claude Code's and not the
+    /// server's; a result in any of the server's forms, passing or failing, is never one.
+    var isNotTheServers: Bool {
+        switch shape {
+        case .mobileBuildMCPJSON, .xcodeMCPJSON: false
+        case let .mobileBuildMCPText(text): !text.hasServersLine
+        case .unrecognized: true
+        }
+    }
+
+    /// The outcome the result itself says, in the shape its server gives one; nil when it says none.
+    var foundSummary: Summary? {
+        switch shape {
         case let .mobileBuildMCPJSON(result): result.summary
         case let .xcodeMCPJSON(result): result.summary
         case let .mobileBuildMCPText(text): text.summary
         case .unrecognized: nil
         }
-        guard let found else { return Summary(ok: !isError) }
-        return Summary(ok: found.ok, detail: found.detail.map(Self.shorten))
     }
 
     /// How long the server says the run took, in milliseconds, which leaves out the hooks and

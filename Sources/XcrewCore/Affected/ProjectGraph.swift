@@ -7,8 +7,19 @@ struct ProjectGraph: Sendable {
     struct Target: Sendable, Equatable {
         let name: String
         let isTest: Bool
+        /// A UI test bundle, `…bundle.ui-testing`: it drives the app on a simulator, unlike a unit test bundle.
+        let isUITest: Bool
         /// The targets it builds on: its dependencies and, for a test bundle, the app it runs in.
         var dependencies: Set<String>
+
+        init(name: String, isTest: Bool, isUITest: Bool, dependencies: Set<String>) {
+            (self.name, self.isTest, self.isUITest, self.dependencies) = (name, isTest, isUITest, dependencies)
+        }
+
+        /// A target as a project file declares it: what kind it is comes from its product type, in either format.
+        init(name: String, productType: String, dependencies: Set<String>) {
+            self.init(name: name, isTest: productType.contains("test"), isUITest: productType.contains("ui-testing"), dependencies: dependencies)
+        }
     }
 
     /// A folder whose files all join `targets`, but for the files an exception set names, whose membership differs.
@@ -138,7 +149,7 @@ struct ProjectGraph: Sendable {
                 }
             }
             let productType = target["productType"] as? String ?? ""
-            graph.targets[name] = Target(name: name, isTest: productType.contains("test"), dependencies: dependencies)
+            graph.targets[name] = Target(name: name, productType: productType, dependencies: dependencies)
             for group in target["fileSystemSynchronizedGroups"] as? [String] ?? [] {
                 guard let url = location(group) else { graph.unmodeled = "a folder of \(name) isn't in the project folder"; continue }
                 let excepted = (objects[group]?["exceptions"] as? [String] ?? []).flatMap { objects[$0]?["membershipExceptions"] as? [String] ?? [] }
@@ -221,7 +232,8 @@ struct ProjectGraph: Sendable {
                     graph.unmodeled = "\(name) depends on a target the reading can't resolve"
                 }
             }
-            graph.targets[name] = Target(name: name, isTest: (target["product-type"] as? String ?? "").contains("test"), dependencies: dependencies)
+            let productType = target["product-type"] as? String ?? ""
+            graph.targets[name] = Target(name: name, productType: productType, dependencies: dependencies)
         }
         func walk(_ nodes: [[String: Any]], in base: URL) {
             for node in nodes {

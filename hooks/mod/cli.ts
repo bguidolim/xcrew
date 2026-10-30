@@ -117,6 +117,12 @@ export function setupOfferOf(answer: unknown): string | undefined {
   return typeof setup === 'string' && setup !== '' ? setup : undefined
 }
 
+/** A file's content hash as `xcrew project --hash` answers: empty for a file that isn't there; none when it couldn't say. */
+export function hashOf(answer: unknown): string | undefined {
+  const { hash } = (answer ?? {}) as { hash?: unknown }
+  return typeof hash === 'string' ? hash : undefined
+}
+
 /** The app an edit changed and the command that regenerates it, when the file `xcrew project --manifest` was asked about is a manifest. */
 export function manifestEditOf(answer: unknown): { app: string; generate: string } | undefined {
   const { app, generate } = (answer ?? {}) as { app?: unknown; generate?: unknown }

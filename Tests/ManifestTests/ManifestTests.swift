@@ -141,6 +141,22 @@ import Testing
         #expect(routing.contains("run the whole suite"))
     }
 
+    /// The routing rules tell Claude how to repeat a test, with the flag the mod recognises a repeated run by, and none
+    /// that stops at the first pass or failure, which can't tell flaky from real.
+    @Test func theRoutingRulesRepeatATestTheWayTheModReadsIt() throws {
+        let routing = try text("context/routing.md")
+        #expect(routing.contains("\"-test-iterations\", \"5\", \"-test-repetition-relaunch-enabled\", \"YES\""))
+        #expect(try text("hooks/mod/context.ts").contains("input.extraArgs.includes('-test-iterations')"))
+        #expect(!routing.contains("-retry-tests-on-failure") && !routing.contains("-run-tests-until-failure"))
+    }
+
+    /// The CLI decides flaky or real; the mod reads each verdict by the names the CLI writes, and no other.
+    @Test func theModKnowsEveryVerdictTheCLIGives() throws {
+        let union = try #require(try text("hooks/mod/cli.ts").firstMatch(of: /verdict: ('[^}]*?')\s*\}/)?.1)
+        let names = Set(union.matches(of: /'(\w+)'/).map { String($0.1) })
+        #expect(names == Set([ResultBundle.Verdict.flaky, .real, .passed, .none].map(\.rawValue)))
+    }
+
     /// Each tool the mod defines is registered at session start and answered by a hook matching its full name.
     @Test(arguments: [("hooks/mod/ledger.ts", "LEDGER_TOOL"), ("hooks/mod/affected.ts", "AFFECTED_TOOL")])
     func eachToolOfTheModsIsRegisteredAndAnswered(file: String, tool: String) throws {

@@ -17,6 +17,8 @@ public struct Report: Sendable, Equatable, Codable {
     public var result: String?
     /// Lines added beside the result for Claude.
     public var notes: [String]
+    /// For a run repeated with `-test-iterations`: each repeated test, and how many of its runs failed.
+    public var repeated: [ResultBundle.Repeated]?
 
     static let noTestsNote =
         "xcrew: this test run ran no tests (passed, failed and skipped are all 0), though it reports SUCCEEDED. An -only-testing or -skip-testing filter that matches nothing does this; check the target and class names."
@@ -47,7 +49,7 @@ public struct Report: Sendable, Equatable, Codable {
     }
 
     /// A result Claude Code saved to a file is read back from it.
-    public static func make(kind: Kind, output: ToolOutput, home: String, runner: any CommandRunning) async -> Report {
+    public static func make(kind: Kind, output: ToolOutput, home: String, runner: any CommandRunning, repeated: Bool = false) async -> Report {
         let saved = savedPath(output.text)
         let read = saved.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }.map { ToolOutput(text: $0, server: output.server, isError: output.isError) } ?? output
         let isTest = kind == .test
@@ -76,6 +78,13 @@ public struct Report: Sendable, Equatable, Codable {
             let names = ResultBundle.expectedFailureCount(summary: summary) > 0 ? ResultBundle.expectedFailures(listing: await bundle.tests()) : []
             if let expected = ResultBundle.expectedFailuresNote(summary: summary, names: names) { notes.append(expected) }
         }
+        // A run repeated with `-test-iterations` says, per test, whether it's flaky or failing for real.
+        var repeatedTests: [ResultBundle.Repeated]?
+        if repeated {
+            let found = if let bundle { ResultBundle.repetitions(listing: await bundle.tests()) } else { [ResultBundle.Repeated]() }
+            notes.append(ResultBundle.repetitionsNote(found) ?? ResultBundle.noRepetitionsNote)
+            repeatedTests = found
+        }
 
         let compact = saved.flatMap { final.compactTestResult(savedPath: $0) } ?? (saved == nil ? final.compactTestText : nil)
         return Report(
@@ -85,7 +94,8 @@ public struct Report: Sendable, Equatable, Codable {
             tests: tests,
             failures: summary.ok ? [] : final.failures,
             result: compact ?? (edited ? final.text : nil),
-            notes: notes
+            notes: notes,
+            repeated: repeatedTests
         )
     }
 }

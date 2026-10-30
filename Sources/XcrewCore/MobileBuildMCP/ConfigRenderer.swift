@@ -3,12 +3,12 @@ import Foundation
 /// Renders and reads `.mobilebuildmcp/config.yaml`. The format is MobileBuildMCP's; see its
 /// configuration docs when a key changes.
 public enum ConfigRenderer {
-    /// Tool groups xcrew enables. `sim-env` is defined by `customWorkflows` below.
-    public static let workflows = ["simulator", "sim-env", "xcode-ide", "ui-automation", "debugging"]
-    /// Simulator-environment tools from MobileBuildMCP's `simulator-management` group, without
-    /// the ones `simulator` already has.
+    /// Tool groups xcrew enables. `sim-env` is defined by `customWorkflows` below. Why the others are off is in
+    /// docs/findings.md, *MobileBuildMCP's tool groups*.
+    public static let workflows = ["simulator", "sim-env", "ui-automation", "debugging"]
+    /// The tools of MobileBuildMCP's `simulator-management` group that `simulator` doesn't have.
     public static let simEnvTools = [
-        "erase_sims", "set_sim_appearance", "set_sim_location", "reset_sim_location",
+        "erase_sims", "set_sim_appearance", "set_sim_location", "reset_sim_location", "sim_statusbar",
         "toggle_software_keyboard", "toggle_connect_hardware_keyboard",
     ]
 
@@ -85,6 +85,47 @@ public enum ConfigRenderer {
             }
         }
         return false
+    }
+
+    /// Every list a config holds, by the path of keys to it (`customWorkflows.sim-env`), block or flow style, at any
+    /// indent, quoted or not, comments dropped. MobileBuildMCP writes the file back in its own style, so the doctor reads
+    /// lists rather than matching setup's text.
+    public static func lists(in yaml: String) -> [String: [String]] {
+        var keys: [(indent: Int, key: String)] = []
+        var lists: [String: [String]] = [:]
+        func item(_ text: Substring) -> String {
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            return trimmed.count >= 2 && trimmed.first == "\"" && trimmed.last == "\"" ? String(trimmed.dropFirst().dropLast()) : unquoted(trimmed)
+        }
+        for raw in yaml.split(whereSeparator: \.isNewline) {
+            let line = raw.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            let indent = line.prefix { $0 == " " }.count
+            if trimmed.hasPrefix("- ") || trimmed == "-" {
+                // An item may sit at its key's own indent.
+                while let last = keys.last, last.indent > indent { keys.removeLast() }
+                lists[keys.map(\.key).joined(separator: "."), default: []].append(item(trimmed.dropFirst()))
+            } else if let colon = trimmed.firstIndex(of: ":") {
+                while let last = keys.last, last.indent >= indent { keys.removeLast() }
+                keys.append((indent, item(trimmed[..<colon])))
+                let value = trimmed[trimmed.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                if value.hasPrefix("["), value.hasSuffix("]") {
+                    lists[keys.map(\.key).joined(separator: "."), default: []] += value.dropFirst().dropLast().split(separator: ",").map(item)
+                }
+            }
+        }
+        return lists
+    }
+
+    /// Whether a config's tool groups are the ones setup writes now, in whatever order and layout.
+    public static func hasCurrentToolGroups(_ lists: [String: [String]]) -> Bool {
+        Set(lists["enabledWorkflows"] ?? []) == Set(workflows) && Set(lists["customWorkflows.sim-env"] ?? []) == Set(simEnvTools)
+    }
+
+    /// Whether any list in a config names MobileBuildMCP's `xcode-ide` group or one of its tools.
+    public static func reachesXcodeIDE(_ lists: [String: [String]]) -> Bool {
+        lists.values.joined().contains { $0 == "xcode-ide" || $0.hasPrefix("xcode_ide_") || $0.hasPrefix("xcode_tools_bridge_") }
     }
 
     /// The simulator IDs a config's profiles name, each once.

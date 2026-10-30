@@ -36,13 +36,13 @@ import XcrewTestSupport
     }
 
     /// A checkout at `/Users/me/Dev/Xcrew`, a spelling git doesn't print, as the mod passes the plugin root unresolved.
-    private func checkout(prefix: String = "", status: CommandResult = .init(status: 0, stdout: ""), online: Bool = true, latest: String = XcrewVersion.current) -> CheckContext {
+    private func checkout(at root: String = "/Users/me/Dev/Xcrew", project: Project = .temporary(), prefix: String = "", status: CommandResult = .init(status: 0, stdout: ""), online: Bool = true, latest: String = XcrewVersion.current) -> CheckContext {
         var responses: [String: CommandResult] = [
-            "git -C /Users/me/Dev/Xcrew rev-parse --show-prefix --short HEAD": .init(status: 0, stdout: "\(prefix)\n5b646cc\n"),
-            "git --no-optional-locks -C /Users/me/Dev/Xcrew status --porcelain": status,
+            "git -C \(root) rev-parse --show-prefix --short HEAD": .init(status: 0, stdout: "\(prefix)\n5b646cc\n"),
+            "git --no-optional-locks -C \(root) status --porcelain": status,
         ]
         if online { responses[Self.latestRelease] = .init(status: 0, stdout: #"{"tag_name":"v\#(latest)"}"#) }
-        return .fake(FakeRunner(responses: responses), environment: ["XCREW_ROOT": "/Users/me/Dev/Xcrew"])
+        return .fake(FakeRunner(responses: responses), project: project, environment: ["XCREW_ROOT": root])
     }
 
     @Test func aGitCheckoutShowsItsCommit() async {
@@ -64,6 +64,23 @@ import XcrewTestSupport
     /// `claude plugin update` touches only the marketplace copy, never the checkout that runs.
     @Test func anOldCheckoutIsToldToPull() async {
         #expect(await XcrewUpdateCheck().run(checkout(latest: "99.0.0")) == .warn("\(XcrewVersion.current) (5b646cc) installed, 99.0.0 released: git pull in /Users/me/Dev/Xcrew"))
+    }
+
+    /// mcs loads the plugin from its own checkout of the pack, by its link or its real path: a `git pull` there would run
+    /// commits nobody trusted.
+    @Test(arguments: [".mcs/packs/xcrew", ".mcs/marketplaces/xcrew/plugins/xcrew"])
+    func anOldMCSCheckoutIsToldToUpdateThroughMCS(_ path: String) async {
+        let project = Project.temporary()
+        let root = CheckContext.fake(project: project).machine.home.appending(path: path).path
+        #expect(await XcrewUpdateCheck().run(checkout(at: root, project: project, latest: "99.0.0")) == .warn("\(XcrewVersion.current) (5b646cc) installed, 99.0.0 released: mcs update"))
+    }
+
+    /// `bin/xcrew` hands over the checkout's real path, which a symlinked `~/.mcs` doesn't spell.
+    @Test func anMCSCheckoutBehindASymlinkedMCSFolderIsToldToUpdateThroughMCS() async throws {
+        let project = Project.temporary(containing: ["home", "elsewhere/mcs/packs/xcrew"])
+        try FileManager.default.createSymbolicLink(at: project.root.appending(path: "home/.mcs"), withDestinationURL: project.root.appending(path: "elsewhere/mcs"))
+        let root = project.root.appending(path: "elsewhere/mcs/packs/xcrew").path
+        #expect(await XcrewUpdateCheck().run(checkout(at: root, project: project, latest: "99.0.0")) == .warn("\(XcrewVersion.current) (5b646cc) installed, 99.0.0 released: mcs update"))
     }
 
     @Test func offlineTheCommitIsStillShown() async {

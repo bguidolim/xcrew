@@ -67,7 +67,7 @@ You need macOS 26 or later, Xcode 27 or later, [Homebrew](https://brew.sh) and [
 
 4. **Approve Claude Code in Xcode's dialog** the first time Claude calls the Xcode MCP.
 
-With the [mcs CLI](https://github.com/mcs-cli/mcs), `mcs pack add breferrari/xcrew && mcs sync` does steps 1 to 3 and asks the setup questions.
+With the [mcs CLI](https://github.com/mcs-cli/mcs), `mcs pack add breferrari/xcrew --ref stable && mcs sync` does steps 1 to 3 and asks the setup questions.
 
 ## What you get
 

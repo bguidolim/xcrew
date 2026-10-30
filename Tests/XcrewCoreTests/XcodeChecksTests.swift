@@ -272,3 +272,34 @@ import XcrewTestSupport
         #expect(result == .pass("no Xcode window is open; the headless Xcode MCP is enabled"))
     }
 }
+
+/// The handshake with a fresh `xcrun mcpbridge`: MCP's `initialize`, which the bridge answers without asking Xcode for
+/// approval, run only under a Claude Code session, whose agent Xcode already permits.
+@Suite struct XcodeMCPHandshakeCheckTests {
+    static let command = XcodeMCPHandshakeCheck.command.joined(separator: " ")
+    static let answer = #"{"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":true}},"instructions":"Request Xcode perform the action you specify.","protocolVersion":"2025-06-18","serverInfo":{"name":"xcode-tools","version":"25464"}}}"# + "\n"
+
+    func context(_ bridge: CommandResult?, inSession: Bool = true) -> CheckContext {
+        var responses = FakeSession.responses(serving: nil)
+        if let bridge { responses[Self.command] = bridge }
+        return CheckContext.fake(FakeRunner(responses: responses), processID: inSession ? FakeSession.doctor : 999)
+    }
+
+    @Test func aBridgeThatAnswersPasses() async {
+        #expect(await XcodeMCPHandshakeCheck().run(context(.init(status: 0, stdout: Self.answer))) == .pass("a new Xcode MCP bridge answers: xcode-tools 25464"))
+    }
+
+    @Test func aBridgeThatDoesNotAnswerFails() async {
+        #expect(await XcodeMCPHandshakeCheck().run(context(.init(status: 1, stdout: ""))) == .fail("a new Xcode MCP bridge (xcrun mcpbridge) didn't answer MCP's initialize: xcrun mcp-server status says whether the server is on, and /mcp → Reconnect restarts this session's"))
+    }
+
+    /// From a terminal the bridge's first call may ask Xcode to approve a new agent: the doctor never raises that dialog.
+    @Test func outsideASessionItSkips() async {
+        #expect(await XcodeMCPHandshakeCheck().run(context(nil, inSession: false)) == .skip("runs only from a Claude Code session, whose agent Xcode already permits"))
+    }
+
+    /// It starts a server, so the doctor the line above the prompt runs leaves it out; the full doctor runs it.
+    @Test func onlyTheFullDoctorRunsIt() {
+        #expect(Doctor.checks.filter(\.startsAServer).map(\.id) == ["xcode-mcp/handshake"])
+    }
+}

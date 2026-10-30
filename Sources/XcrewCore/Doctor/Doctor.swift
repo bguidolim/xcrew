@@ -9,6 +9,7 @@ public enum Doctor {
         XcodebuildLeftRunningCheck(),
         SimulatorsCheck(),
         HeadlessXcodeMCPCheck(),
+        XcodeMCPHandshakeCheck(),
         XcodePinCheck(),
         XcodeCICheck(),
         XcodeOpenCheck(),

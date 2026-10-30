@@ -90,6 +90,10 @@ supplementaryDoctorChecks:
     section: xcrew
     command: mcs/checks/xcode-mcp--headless-enabled.sh
   - type: shellScript
+    name: A new Xcode MCP bridge answers
+    section: xcrew
+    command: mcs/checks/xcode-mcp--handshake.sh
+  - type: shellScript
     name: Claude Code approved in Xcode
     section: xcrew
     command: mcs/checks/xcode-mcp--claude-approved.sh

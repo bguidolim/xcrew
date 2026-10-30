@@ -21,7 +21,7 @@ export function submitPrompt($: Engine, text: string) {
 }
 
 /** What `xcrew project` answers: with `--manifest`, the command that regenerates the project when the file is a manifest. */
-type ProjectAnswer = { isGenerated: boolean; generate?: string; app?: string; root?: string; branch?: string; commit?: string }
+type ProjectAnswer = { isGenerated: boolean; generate?: string; app?: string; root?: string; branch?: string; commit?: string; manifest?: string }
 
 /** One call the mod made to the Swift CLI: its arguments, what it piped in, and the program when it wasn't the shim. */
 export type CliCall = { args: readonly string[]; stdin?: string; program?: string; timeoutMs?: number }
@@ -45,7 +45,10 @@ export function stubCli(
     doctorFails?: () => boolean
     /** The report can't be read: the CLI timed out, or the shim couldn't build. */
     reportFails?: () => boolean
-    project?: ProjectAnswer | ((args: readonly string[]) => ProjectAnswer)
+    /** A function may answer later, as a CLI that takes its time does. */
+    project?: ProjectAnswer | ((args: readonly string[]) => ProjectAnswer | Promise<ProjectAnswer>)
+    /** What `xcrew affected` answers, for its arguments. */
+    affected?: (args: readonly string[]) => unknown
     noBuild?: boolean
     build?: { fails: 'to start' } | { fails: 'by timing out'; clock: { advance: (ms: number) => Promise<void> } }
   } = {},
@@ -63,12 +66,14 @@ export function stubCli(
       if (answers.build.fails === 'by timing out') await answers.build.clock.advance(timeoutMs ?? 30_000)
       throw new Error(answers.build.fails === 'to start' ? 'spawn ENOENT' : 'timed out')
     }
-    const answer =
+    const answer = await (
       args[0] === 'report' ? ((reports.length > 1 ? reports.shift() : reports[0]) ?? {})
       : args[0] === 'phase' ? (answers.phase?.(args) ?? {})
       : args[0] === 'doctor' ? (answers.problems ?? [])
       : args[0] === 'project' ? ((typeof answers.project === 'function' ? answers.project(args) : answers.project) ?? { isGenerated: false })
+      : args[0] === 'affected' ? (answers.affected?.(args) ?? null)
       : null
+    )
     const stdout = args[0] === '--binary-path' ? (answers.noBuild ? '' : `${BUILT_BINARY}\n`) : JSON.stringify(answer)
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })

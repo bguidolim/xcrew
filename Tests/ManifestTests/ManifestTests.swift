@@ -119,6 +119,121 @@ import Testing
         }
     }
 
+    /// The mod asks about an edit inside each bundle the CLI counts as an Xcode container, and inside Tuist's `Derived`
+    /// folder, as the mod's tests feed its name filter.
+    @Test func theModAsksAboutEveryFolderAGeneratorWrites() throws {
+        let tests = try text("hooks/mod/tools.test.ts")
+        for folder in Project.containerExtensions.map({ "App\($0)" }) + [ProjectLayout.derivedFolder] {
+            #expect(tests.contains("'/a/\(folder)/"), "\(folder)")
+        }
+    }
+
+    /// The routing rules send Claude to the affected tool before a full test run, by its name, with the guarantee it
+    /// gives and when to run everything; the hook answering it matches the name it's registered under.
+    @Test func theRoutingRulesAskTheAffectedToolAndNameItsGuarantee() throws {
+        let routing = try text("context/routing.md")
+        let affected = try text("hooks/mod/affected.ts")
+        let plugin = try #require(try json(".claude-plugin/plugin.json")["name"] as? String)
+        let name = try #require(affected.firstMatch(of: /export const AFFECTED_TOOL = \{\n  name: '(\w+)'/)?.1)
+        #expect(affected.contains("export const AFFECTED_TOOL_NAME = 'mcp__\(plugin)__\(name)'"))
+        #expect(routing.contains("`\(name)`"))
+        #expect(routing.contains("as the project declares them, nothing more"))
+        #expect(routing.contains("run the whole suite"))
+    }
+
+    /// The routing rules tell Claude how to repeat a test, with the flag the mod recognises a repeated run by, and none
+    /// that stops at the first pass or failure, which can't tell flaky from real.
+    @Test func theRoutingRulesRepeatATestTheWayTheModReadsIt() throws {
+        let routing = try text("context/routing.md")
+        #expect(routing.contains("\"-test-iterations\", \"5\", \"-test-repetition-relaunch-enabled\", \"YES\""))
+        #expect(try text("hooks/mod/context.ts").contains("input.extraArgs.includes('-test-iterations')"))
+        #expect(!routing.contains("-retry-tests-on-failure") && !routing.contains("-run-tests-until-failure"))
+    }
+
+    /// The loop budget's note sends Claude to the affected tool as the routing rules do, with the same promise to run
+    /// the whole suite when it says so.
+    @Test func theLoopNoteAndTheRoutingRulesAgreeOnTheAffectedTool() throws {
+        let routing = try text("context/routing.md"), loop = try text("hooks/mod/loop.ts"), affected = try text("hooks/mod/affected.ts")
+        let name = try #require(affected.firstMatch(of: /name: '([a-z-]+)'/)?.1)
+        // The note names the tool by the constant; the routing rules by its name, behind ToolSearch.
+        #expect(loop.contains(#"\`${AFFECTED_TOOL.name}\` tool (search for it)"#))
+        #expect(routing.contains("`\(name)` tool (search for it)"))
+        let promise = "When it says to run the whole suite"
+        #expect(routing.contains(promise) && loop.contains(promise))
+        #expect(routing.contains("`-only-testing:`") && loop.contains("`-only-testing:`"))
+    }
+
+    /// The MobileBuildMCP launcher reads the exit statuses the CLI's `xcode --developer-dir` and the shim's `--if-built`
+    /// give, and waits no longer than its named limit.
+    @Test func theLauncherReadsTheCLIsAndTheShimsStatuses() throws {
+        let launcher = try text("libexec/mobilebuildmcp-server"), shim = try text("bin/xcrew")
+        #expect(launcher.contains("\"$plugin/bin/xcrew\" --if-built xcode --developer-dir"))
+        #expect(launcher.contains("\n        \(XcodeCommand.noPin)) outcome= ;;"))
+        #expect(launcher.contains("\n        \(XcodeCommand.noMatch)) outcome=\"no match\" ;;"))
+        #expect(shim.contains("[ -x \"$binary\" ] || exit 75") && launcher.contains("\n        75) outcome=\"not built\" ;;"))
+        #expect(launcher.contains("\nPIN_SECONDS=2\n"))
+    }
+
+    /// The launcher writes its record where the doctor reads it, in the words it parses: xcrew's cache, as the shim and
+    /// `Machine` name it, below `launches` at the project's real path.
+    @Test func theLauncherRecordsWhatTheDoctorReads() throws {
+        let launcher = try text("libexec/mobilebuildmcp-server"), shim = try text("bin/xcrew")
+        let cache = #"${XCREW_CACHE:-"$HOME/Library/Caches/xcrew"}"#
+        #expect(shim.contains("cache=\(cache)\n") && launcher.contains("record=\"\(cache)/launches$(pwd -P).launch\""))
+        let home = URL(fileURLWithPath: "/Users/someone")
+        #expect(Machine(environment: [:], home: home, runner: SystemCommandRunner()).cacheFolder.path == "/Users/someone/Library/Caches/xcrew")
+
+        let folder = FileManager.default.temporaryDirectory.appending(path: "xcrew-record-\(UUID().uuidString)")
+        let project = Project(root: folder.appending(path: "project"))
+        try FileManager.default.createDirectory(at: project.root, withIntermediateDirectories: true)
+        let machine = Machine(environment: ["XCREW_CACHE": folder.appending(path: "cache").path], home: folder, runner: SystemCommandRunner())
+        #expect(Xcodes.launchRecord(of: project, on: machine).path == folder.appending(path: "cache").path + "/launches" + project.canonicalRoot + ".launch")
+        let written: [(String, Xcodes.Launch)] = [("applied $developer", .applied("/Apps/X.app/Contents/Developer")), ("no match", .noMatch), ("not built", .notBuilt), ("timed out $PIN_SECONDS", .timedOut("2")), ("failed $status", .failed("1"))]
+        for (outcome, launch) in written {
+            #expect(launcher.contains("outcome=\"\(outcome)\""), "\(outcome)")
+            let line = outcome.replacingOccurrences(of: "$developer", with: "/Apps/X.app/Contents/Developer").replacingOccurrences(of: "$PIN_SECONDS", with: "2").replacingOccurrences(of: "$status", with: "1")
+            let record = Xcodes.launchRecord(of: project, on: machine)
+            try FileManager.default.createDirectory(at: record.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "\(line)\n".write(to: record, atomically: true, encoding: .utf8)
+            #expect(Xcodes.launch(of: project, on: machine) == launch, "\(outcome)")
+        }
+    }
+
+    /// The launcher's quick look for a pin passes over the folders the project walk leaves out, hidden ones too, and
+    /// reaches one level below the deepest folder that can hold a container.
+    @Test func theLauncherLooksForAPinWhereTheProjectWalkDoes() throws {
+        let launcher = try text("libexec/mobilebuildmcp-server")
+        let look = try #require(launcher.split(separator: "\n").first { $0.contains("-name .xcode-version") }.map(String.init))
+        #expect(look.contains("-maxdepth \(ProjectLayout.searchDepth + 1) "))
+        #expect(look.contains("-name '.?*'"))
+        for folder in ProjectLayout.dependencyFolders { #expect(look.contains("-name \(folder) "), "\(folder)") }
+        #expect(look.matches(of: /-name [A-Za-z]/).count == ProjectLayout.dependencyFolders.count)
+    }
+
+    /// The routing rules tell Claude how to turn coverage on, which the changed-line note needs, and what it costs, so
+    /// it stays off the edit-and-test loop.
+    @Test func theRoutingRulesTurnCoverageOnBeforeAPullRequest() throws {
+        let routing = try text("context/routing.md")
+        #expect(routing.contains("\"-enableCodeCoverage\", \"YES\""))
+        #expect(routing.contains("it slows the run"))
+    }
+
+    /// The CLI decides flaky or real; the mod reads each verdict by the names the CLI writes, and no other.
+    @Test func theModKnowsEveryVerdictTheCLIGives() throws {
+        let union = try #require(try text("hooks/mod/cli.ts").firstMatch(of: /verdict: ('[^}]*?')\s*\}/)?.1)
+        let names = Set(union.matches(of: /'(\w+)'/).map { String($0.1) })
+        #expect(names == Set([ResultBundle.Verdict.flaky, .real, .passed, .none].map(\.rawValue)))
+    }
+
+    /// Each tool the mod defines is registered at session start and answered by a hook matching its full name.
+    @Test(arguments: [("hooks/mod/ledger.ts", "LEDGER_TOOL"), ("hooks/mod/affected.ts", "AFFECTED_TOOL")])
+    func eachToolOfTheModsIsRegisteredAndAnswered(file: String, tool: String) throws {
+        let register = try text("hooks/mod/register.ts")
+        #expect(try text(file).contains("export const \(tool)_NAME = "))
+        #expect(register.contains("{ tool: \(tool)_NAME }"))
+        #expect(try #require(register.firstMatch(of: /for \(const tool of \[([^\]]*)\]\) await quietly\(\(\) => \$\.tool\.register\(tool\)\)/)?.1).split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.contains(tool))
+    }
+
     /// The hook answering the ledger tool matches the name Claude calls it by: `mcp__<plugin>__<name>`, from the plugin's
     /// name and the name the mod registers. A rename of either would leave every call unanswered.
     @Test func theLedgerToolsHookMatchesItsRegisteredName() throws {

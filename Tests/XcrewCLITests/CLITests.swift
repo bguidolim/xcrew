@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import XcrewCLI
 import XcrewCore
 import XcrewTestSupport
 
@@ -598,5 +599,203 @@ import XcrewTestSupport
         let project = Project.temporary()
         let text = await Run("project", "--branch", context: .fake(project: project)).text
         #expect(text == #"{"isGenerated":false,"root":"\#(await realPath(project))"}"#)
+    }
+}
+
+/// What a generator writes, which an edit loses on the next generate: a project or workspace with a manifest beside it,
+/// and Tuist's `Derived` folder beside a project manifest.
+@Suite struct GeneratedFileTests {
+    func answer(_ file: String, in project: Project) async throws -> ProjectCommand.Answer {
+        try JSONDecoder().decode(ProjectCommand.Answer.self, from: Data(await Run("project", "--generated", project.root.appending(path: file).path, context: .fake(project: project)).text.utf8))
+    }
+
+    @Test func aModulesProjectNamesItsOwnManifestAndTheAppsGenerate() async throws {
+        let project = Project.temporary(containing: ["Tuist.swift", "Projects/Feature/Feature.xcodeproj"])
+        project.write("import ProjectDescription\n", to: "Projects/Feature/Project.swift")
+        project.write("// !$*UTF8*$!\n", to: "Projects/Feature/Feature.xcodeproj/project.pbxproj")
+        let found = try await answer("Projects/Feature/Feature.xcodeproj/project.pbxproj", in: project)
+        #expect(found.manifest == "Projects/Feature/Project.swift")
+        #expect(found.generate == "tuist generate --no-open")
+    }
+
+    /// A Write that creates a file inside a generated folder is an edit the next generate loses too, however the root is
+    /// spelled: `/var` here is `/private/var` on disk.
+    @Test func aNewFileInAGeneratedFolderIsGenerated() async throws {
+        let project = Project.temporary(containing: ["Tuist.swift", "Derived"])
+        project.write("import ProjectDescription\n", to: "Project.swift")
+        #expect(try await answer("Derived/InfoPlists/New-Info.plist", in: project).manifest == "Project.swift")
+    }
+
+    /// XcodeGen writes the project its spec names, and nothing else beside it: not a workspace CocoaPods wrote, nor another project.
+    @Test func xcodeGenWritesOnlyTheProjectItsSpecNames() async throws {
+        let project = Project.temporary(containing: ["App.xcodeproj", "App.xcworkspace", "Other.xcodeproj"])
+        project.write("name: App\n", to: "project.yml")
+        project.write("// !$*UTF8*$!\n", to: "App.xcodeproj/project.pbxproj")
+        project.write("<Workspace/>\n", to: "App.xcworkspace/contents.xcworkspacedata")
+        project.write("// !$*UTF8*$!\n", to: "Other.xcodeproj/project.pbxproj")
+        #expect(try await answer("App.xcodeproj/project.pbxproj", in: project).manifest == "project.yml")
+        #expect(try await answer("App.xcworkspace/contents.xcworkspacedata", in: project).manifest == nil)
+        #expect(try await answer("Other.xcodeproj/project.pbxproj", in: project).manifest == nil)
+    }
+
+    /// Each XcodeGen app's project is its own spec's, not only the nearest one's.
+    @Test func aSecondXcodeGenAppsProjectNamesItsOwnSpec() async throws {
+        let project = Project.temporary(containing: ["apps/a/A.xcodeproj", "apps/b/B.xcodeproj"])
+        project.write("name: A\n", to: "apps/a/project.yml")
+        project.write("name: B\n", to: "apps/b/project.yml")
+        project.write("// !$*UTF8*$!\n", to: "apps/b/B.xcodeproj/project.pbxproj")
+        let found = try await answer("apps/b/B.xcodeproj/project.pbxproj", in: project)
+        #expect(found.manifest == "apps/b/project.yml")
+        #expect(found.generate == "xcodegen generate --spec apps/b/project.yml")
+    }
+
+    /// Beside a checked-in project, a `Project.swift` that is a source file isn't a manifest: detection's rule decides.
+    @Test func aSourceFileNamedProjectSwiftBesideAProjectIsntItsManifest() async throws {
+        let project = Project.temporary(containing: ["Tuist.swift", "Modules/Legacy/Legacy.xcodeproj"])
+        project.write("struct Project {}\n", to: "Modules/Legacy/Project.swift")
+        project.write("// !$*UTF8*$!\n", to: "Modules/Legacy/Legacy.xcodeproj/project.pbxproj")
+        #expect(try await answer("Modules/Legacy/Legacy.xcodeproj/project.pbxproj", in: project).manifest == nil)
+    }
+
+    /// A checked-in project of a dependency, or a folder that only shares Tuist's folder name, isn't Tuist's to write.
+    @Test func aBundleOrDerivedFolderWithNoManifestBesideItIsntGenerated() async throws {
+        let project = Project.temporary(containing: ["Tuist.swift", "Vendor/Lib.xcodeproj", "Docs/Derived"])
+        project.write("// !$*UTF8*$!\n", to: "Vendor/Lib.xcodeproj/project.pbxproj")
+        project.write("notes\n", to: "Docs/Derived/notes.md")
+        for file in ["Vendor/Lib.xcodeproj/project.pbxproj", "Docs/Derived/notes.md"] {
+            #expect(try await answer(file, in: project).manifest == nil, "\(file)")
+        }
+    }
+}
+
+/// `xcrew affected`: the changes since the merge base with the remote's default branch, uncommitted and untracked
+/// files included, and the tests they can break. The answer names the base it used.
+@Suite struct AffectedCommandTests {
+    func project() -> Project {
+        let project = Project.temporary(containing: ["App.xcodeproj"])
+        project.write("""
+            { "files": [ { "kind": "folder", "path": "App", "target-membership": [ "App" ] }, { "kind": "folder", "path": "AppTests", "target-membership": [ "AppTests" ] } ],
+              "targets": [ { "name": "App", "id": "A", "product-type": "application" }, { "name": "AppTests", "id": "T", "product-type": "bundle.unit-test", "test-host-target": "App" } ] }
+            """, to: "App.xcodeproj/project.xcproj")
+        return project
+    }
+
+    func git(_ project: Project, _ answers: [String: CommandResult]) -> FakeRunner {
+        FakeRunner(responses: Dictionary(uniqueKeysWithValues: answers.map { ("git -C \(project.root.path) \($0.key)", $0.value) }))
+    }
+
+    func run(_ project: Project, _ runner: FakeRunner, base: String? = nil) async throws -> [String: Any] {
+        let context = CheckContext.fake(runner, project: project)
+        let text = if let base { await Run("affected", "--base", base, context: context).text } else { await Run("affected", context: context).text }
+        return try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], "\(text)")
+    }
+
+    @Test func changesSinceTheMergeBaseWithTheDefaultBranchSelectTheirTests() async throws {
+        let project = project()
+        let runner = git(project, [
+            "rev-parse --show-toplevel": .init(status: 0, stdout: "\(project.root.path)\n"),
+            "rev-parse --abbrev-ref origin/HEAD": .init(status: 0, stdout: "origin/main\n"),
+            "merge-base HEAD origin/main": .init(status: 0, stdout: "0123456789abcdef0123456789abcdef01234567\n"),
+            "diff --name-only --no-renames --no-relative -z 0123456789abcdef0123456789abcdef01234567": .init(status: 0, stdout: "App/ContentView.swift\u{0}"),
+            "ls-files -z --others --exclude-standard --full-name": .init(status: 0, stdout: "AppTests/NewTests.swift\u{0}"),
+        ])
+        let answer = try await run(project, runner)
+        #expect(answer["base"] as? String == "origin/main, from 0123456789ab")
+        #expect(answer["changed"] as? [String] == ["App/ContentView.swift", "AppTests/NewTests.swift"])
+        #expect(answer["selections"] as? [String] == ["AppTests"])
+    }
+
+    @Test func withoutARemoteTheWorkingTreeIsTheChange() async throws {
+        let project = project()
+        let runner = git(project, [
+            "rev-parse --show-toplevel": .init(status: 0, stdout: "\(project.root.path)\n"),
+            "rev-parse --abbrev-ref origin/HEAD": .init(status: 128),
+            "remote": .init(status: 0),
+            "diff --name-only --no-renames --no-relative -z HEAD": .init(status: 0, stdout: "App/ContentView.swift\u{0}"),
+            "ls-files -z --others --exclude-standard --full-name": .init(status: 0),
+        ])
+        let answer = try await run(project, runner)
+        #expect(answer["base"] as? String == "the working tree, since there is no remote")
+        #expect(answer["selections"] as? [String] == ["AppTests"])
+    }
+
+    @Test func aBaseNamedOnTheCommandLineIsUsed() async throws {
+        let project = project()
+        let runner = git(project, [
+            "rev-parse --show-toplevel": .init(status: 0, stdout: "\(project.root.path)\n"),
+            "merge-base HEAD release/2.0": .init(status: 0, stdout: "fedcba9876543210fedcba9876543210fedcba98\n"),
+            "diff --name-only --no-renames --no-relative -z fedcba9876543210fedcba9876543210fedcba98": .init(status: 0, stdout: "README.md\u{0}"),
+            "ls-files -z --others --exclude-standard --full-name": .init(status: 0),
+        ])
+        let answer = try await run(project, runner, base: "release/2.0")
+        #expect(answer["base"] as? String == "release/2.0, from fedcba987654")
+        #expect(answer["selections"] == nil)
+        #expect((answer["runAll"] as? String)?.contains("README.md") == true)
+    }
+
+    @Test func outsideGitEverythingRuns() async throws {
+        let answer = try await run(project(), FakeRunner())
+        #expect(answer["selections"] == nil)
+        #expect(answer["base"] == nil)
+        #expect((answer["runAll"] as? String)?.contains("git") == true)
+    }
+}
+
+/// What the first reading of git missed, each a skip that wasn't safe.
+@Suite struct AffectedCommandEdgeTests {
+    let base = "0123456789abcdef0123456789abcdef01234567"
+
+    func run(_ project: Project, _ answers: [String: CommandResult]) async throws -> [String: Any] {
+        let runner = FakeRunner(responses: Dictionary(uniqueKeysWithValues: (answers.merging(["rev-parse --show-toplevel": .init(status: 0, stdout: "\(project.root.path)\n")]) { first, _ in first }).map { ("git -C \(project.root.path) \($0.key)", $0.value) }))
+        let text = await Run("affected", context: .fake(runner, project: project)).text
+        return try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], "\(text)")
+    }
+
+    /// `origin/HEAD` is set only by a clone: a pushed branch without it still has a default branch on the remote.
+    @Test func withoutOriginHEADTheRemotesMainIsTheBase() async throws {
+        let answer = try await run(Project.temporary(), [
+            "rev-parse --abbrev-ref origin/HEAD": .init(status: 128),
+            "rev-parse --verify --quiet origin/main": .init(status: 0, stdout: "\(base)\n"),
+            "merge-base HEAD origin/main": .init(status: 0, stdout: "\(base)\n"),
+            "diff --name-only --no-renames --no-relative -z \(base)": .init(status: 0),
+            "ls-files -z --others --exclude-standard --full-name": .init(status: 0),
+        ])
+        #expect(answer["base"] as? String == "origin/main, from 0123456789ab")
+    }
+
+    /// With a remote and no default branch found on it, the branch's own commits can't be told apart: everything runs.
+    @Test func aRemoteWithNoDefaultBranchRunsEverything() async throws {
+        let answer = try await run(Project.temporary(), [
+            "rev-parse --abbrev-ref origin/HEAD": .init(status: 128),
+            "remote": .init(status: 0, stdout: "upstream\n"),
+        ])
+        #expect(answer["selections"] == nil)
+        #expect((answer["runAll"] as? String)?.contains("default branch") == true)
+    }
+
+    /// Names come back as git writes them, NUL-separated, so a name with any character survives.
+    @Test func aNameWithAnyCharacterSurvives() async throws {
+        let answer = try await run(Project.temporary(), [
+            "rev-parse --abbrev-ref origin/HEAD": .init(status: 0, stdout: "origin/main\n"),
+            "merge-base HEAD origin/main": .init(status: 0, stdout: "\(base)\n"),
+            "diff --name-only --no-renames --no-relative -z \(base)": .init(status: 0, stdout: "App/Café.swift\u{0}Core/Old Name.swift\u{0}"),
+            "ls-files -z --others --exclude-standard --full-name": .init(status: 0),
+        ])
+        #expect(answer["changed"] as? [String] == ["App/Café.swift", "Core/Old Name.swift"])
+    }
+}
+
+/// A base git would read as one of its options isn't a base: it could compare with HEAD and drop the branch's commits.
+@Suite struct AffectedBaseTests {
+    @Test func aBaseThatLooksLikeAnOptionRunsEverything() async throws {
+        let project = Project.temporary()
+        let runner = FakeRunner(responses: [
+            "git -C \(project.root.path) rev-parse --show-toplevel": .init(status: 0, stdout: "\(project.root.path)\n"),
+            "git -C \(project.root.path) merge-base HEAD --independent": .init(status: 0, stdout: "0123456789abcdef0123456789abcdef01234567\n"),
+        ])
+        let text = await Run("affected", "--base", "--independent", context: .fake(runner, project: project)).text
+        let answer = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        #expect(answer["selections"] == nil)
+        #expect((answer["runAll"] as? String)?.contains("--independent") == true)
     }
 }

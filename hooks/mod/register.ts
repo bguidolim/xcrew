@@ -1,22 +1,26 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
-import type { BandProblems, BandRun, CliBuild, FailureList, ResultRow, StaleProject } from '../../types'
+import type { BandProblems, BandRun, CliBuild, FailureList, FullRun, FullRuns, ResultRow, StaleProject } from '../../types'
 import { changedRun, endedRun, outcomeLine, problemsTree, promptLine, resultTree, runTree, shownFor, showsRun } from './band'
-import { answerOf, couldntRun, headOf, isGeneratedOf, knownBuild, manifestEditOf, namedBuild, phaseArgs, phaseOf, problemsOf, ranOutOfTime, reportArgs, reportOf, shimPath, type Failure, type Problem, type Ran } from './cli'
+import { answerOf, couldntRun, generatedOf, type Head, headOf, isGeneratedOf, knownBuild, manifestEditOf, namedBuild, phaseArgs, phaseOf, problemsOf, ranOutOfTime, reportArgs, reportOf, shimPath, type Failure, type Problem, type Ran } from './cli'
 import { COMMAND, historyText, keptHistory, USAGE } from './command'
-import { describe, historyOf, observe, runsWholeScope } from './context'
-import { afterTestRun, LEDGER_PREFIX, LEDGER_TOOL, LEDGER_TOOL_NAME, LEDGER_UNAVAILABLE, ledgerKey, ledgerOf, ledgerText, staleLedgers, type TestRun } from './ledger'
+import { AFFECTED_TOOL, AFFECTED_TOOL_NAME, affectedArgs, affectedText } from './affected'
+import { CARD_BLOCK, CARD_WAIT_MS, cardText } from './card'
+import { describe, historyOf, isFullSuiteRun, isRepeatedRun, observe, runsWholeScope } from './context'
+import { afterTestRun, label, type Ledger, LEDGER_PREFIX, LEDGER_TOOL, LEDGER_TOOL_NAME, LEDGER_UNAVAILABLE, ledgerKey, ledgerOf, ledgerText, staleLedgers, type TestRun } from './ledger'
 import { afterRun, paneTree, summary } from './failures'
+import { afterFullRun, type Crossing, loopNote } from './loop'
 import { average } from './format'
-import { describedForGenerated, REASON } from './guard'
+import { decided, describedForGenerated, editQuestion, editRefusal, type Question, XCODE_WRITE_QUESTION, xcodeWriteRefusal } from './guard'
 import { mostSerious, noticed, REREAD_EVERY_MS, visible, WARNING_FOR_MS } from './problems'
 import { afterGenerate, editedNote, letThroughNote, marked, marksOf, refusal } from './regenerate'
-import { DURATIONS_PREFIX, drawsBand, endingOf, type Following, historyKey, HISTORY, isStale, labelOf, LONG_RUN_MS, logsKey, phaseStep, quietly, resultFor, statusLine, testsKey, updatedKey, withContext } from './timing'
+import { DURATIONS_PREFIX, drawsBand, endingOf, type Following, historyKey, HISTORY, isStale, labelOf, LONG_RUN_MS, logsKey, phaseStep, quietly, resultFor, statusLine, testsKey, updatedKey, whereKey, withContext } from './timing'
 import { drawsRow, rowOf } from './rows'
-import { buildsProject, FILE_EDITOR, kindOf, mayBeManifest, MCP_TOOL, parseTool, PROJECT_REWRITER, runsGenerate, runsSetup } from './tools'
+import { buildsProject, FILE_EDITOR, generatedPart, kindOf, mayBeGenerated, mayBeManifest, MCP_TOOL, parseTool, PROJECT_REWRITER, runsGenerate, runsSetup } from './tools'
 
 // The mod's state, which the loader reads only from atoms declared in the hooks module itself.
 const runState = atom({ plugin: 'xcrew', key: 'run' } as const, null as BandRun | null)
+const loopState = atom({ plugin: 'xcrew', key: 'loop' } as const, {} as FullRuns)
 const failuresState = atom({ plugin: 'xcrew', key: 'failures' } as const, null as FailureList | null)
 const problemsState = atom({ plugin: 'xcrew', key: 'problems' } as const, null as BandProblems | null)
 /** The failures pane's id: a literal here, so the loader can read the pane hook's matcher. */
@@ -40,7 +44,11 @@ const staleState = atom({ plugin: 'xcrew', key: 'stale' } as const, null as Stal
 export const register: Register = on => {
   // The two tool.call hooks fail open, as the engine would without a handler; it's stated so validate reads it, and so
   // a later change can't turn either into a refusal by accident. Nothing below them throws today.
-  on('tool.call', { tool: PROJECT_REWRITER }, async ($, e, next) => ((await isGeneratedProject($)) ? { deny: REASON } : next(e))).catch(async ($, e, next) => next(e))
+  on('tool.call', { tool: PROJECT_REWRITER }, async ($, e, next) => {
+    if (!(await isGeneratedProject($))) return next(e)
+    const decision = decided(XCODE_WRITE_QUESTION, await ask($, XCODE_WRITE_QUESTION))
+    return decision.allows ? next(e) : { deny: xcodeWriteRefusal(decision.said) }
+  }).catch(async ($, e, next) => next(e))
   on('tool.describe', { tool: PROJECT_REWRITER }, async ($, e, next) => {
     const described = await next(e)
     return (await isGeneratedProject($)) ? { ...described, description: describedForGenerated(described.description) } : described
@@ -62,9 +70,20 @@ export const register: Register = on => {
     return result.deny === undefined ? withContext(result, letThroughNote(generates)) : result
   }).catch(async ($, e, next) => next(e))
   on('tool.call', { tool: FILE_EDITOR }, async ($, e, next) => {
+    const path = e.tool === 'Write' || e.tool === 'Edit' ? e.file_path : undefined
+    // An edit to a file a generator writes waits for the person: the next generate would overwrite it.
+    if (path !== undefined && mayBeGenerated(path)) {
+      const generated = generatedOf(await answer($, ['project', '--generated', path], 10_000))
+      if (generated) {
+        const shown = generatedPart(path)
+        const question = editQuestion(shown, generated)
+        const decision = decided(question, await ask($, question))
+        if (!decision.allows) return { deny: editRefusal(shown, generated, decision.said) }
+      }
+    }
     const result = await next(e)
-    if ((e.tool !== 'Write' && e.tool !== 'Edit') || result.deny !== undefined || result.isError || !mayBeManifest(e.file_path)) return result
-    const edit = manifestEditOf(await answer($, ['project', '--manifest', e.file_path], 10_000))
+    if (path === undefined || result.deny !== undefined || result.isError || !mayBeManifest(path)) return result
+    const edit = manifestEditOf(await answer($, ['project', '--manifest', path], 10_000))
     if (!edit) return result
     return (await markStale($, stale => marked(stale, edit))) ? withContext(result, editedNote(edit.generate)) : result
   }).catch(async ($, e, next) => next(e))
@@ -145,15 +164,17 @@ export const register: Register = on => {
 
     // The CLI reads the server's output: the outcome, the failures, the duration it reports, and what Claude reads.
     // It never throws: without the CLI it falls back to whether the server reported an error.
-    const reported = await answer($, reportArgs(parsed.server, kind, result.isError === true), 120_000, result.text ?? '')
+    const repeated = kind === 'test' && isRepeatedRun(e as unknown as Record<string, unknown>)
+    const reported = await answer($, reportArgs(parsed.server, kind, result.isError === true, repeated), 120_000, result.text ?? '')
     const outcome = reportOf(reported, result.isError === true)
     // The server's own duration leaves out what ran around the call: a project's pre-build hook, a permission prompt.
     const elapsed = outcome.durationMs ?? ended - started
     await quietly(() => $.store.set(historyKey(scope), [...earlier, elapsed].slice(-HISTORY)))
     await quietly(() => $.store.set(updatedKey(scope), ended))
+    await quietly(async () => $.store.set(whereKey(scope), await $.session.cwd()))
     await quietly(() => recordRun($, scope, outcome.ok, outcome.failures))
     // Only what the CLI read goes in the ledger: without it, the outcome is a guess no test plan should cite.
-    if (kind === 'test' && reported !== undefined) recordLedger($, { scope, at: ended, ok: outcome.ok, failures: outcome.failures, ranAll: runsWholeScope(parsed, e as unknown as Record<string, unknown>) })
+    if (kind === 'test' && reported !== undefined) recordLedger($, { scope, at: ended, ok: outcome.ok, failures: outcome.failures, ranAll: runsWholeScope(parsed, e as unknown as Record<string, unknown>), repeated: outcome.repeated ?? [] })
     if (outcome.tests !== undefined) await quietly(() => $.store.set(testsKey(scope), outcome.tests))
     const ending = endingOf(outcome, ended, elapsed, earlier)
     const summaryLine = outcomeLine(name, ending)
@@ -169,7 +190,13 @@ export const register: Register = on => {
     }
     // Long enough that the person has likely looked away; their notification settings decide how it arrives.
     if (elapsed >= LONG_RUN_MS) await quietly(() => $.ui.notify(summaryLine))
-    return resultFor(result, outcome)
+    const resulting = resultFor(result, outcome)
+    // A whole suite run again and again: past the budget, the tests the change can break would do.
+    // Only a run the CLI read and that ran tests counts: a test build that failed ran none.
+    const ranTests = outcome.tests === undefined ? outcome.ok || outcome.failures.some(failure => failure.isTest) : outcome.tests > 0
+    const isFullRun = kind === 'test' && reported !== undefined && ranTests && isFullSuiteRun(parsed, e as unknown as Record<string, unknown>)
+    const loop = isFullRun ? await quietly(() => countFullRun($, scope, { at: ended, ms: elapsed })) : undefined
+    return loop ? withContext(resulting, loopNote(scope, loop, parsed.server === 'MobileBuildMCP')) : resulting
   }).catch(async ($, e, next) => next(e))
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
@@ -191,6 +218,9 @@ export const register: Register = on => {
     const row = await read($, memberOf(rowState, e))
     return row ? resultTree($.ui.resolve(e), parsed.tool, row) : next(e)
   })
+  // Claude's question before a full test run: which tests the branch's changes can break.
+  // The time `/xcrew doctor` gets: the first call after an update builds the CLI.
+  on('tool.call', { tool: AFFECTED_TOOL_NAME }, async ($, e) => ({ result: affectedText(await answer($, affectedArgs(e as unknown as Record<string, unknown>), 120_000)) }))
   // Claude's read of the ledger, for a pull request's test plan.
   on('tool.call', { tool: LEDGER_TOOL_NAME }, async $ => ({ result: await ledgerNow($) }))
   on('command.run', { command: 'xcrew' }, async ($, e) => {
@@ -213,12 +243,19 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register(COMMAND)
-    await quietly(() => $.tool.register(LEDGER_TOOL))
+    for (const tool of [LEDGER_TOOL, AFFECTED_TOOL]) await quietly(() => $.tool.register(tool))
     // A cleared conversation is a new session: its warnings show again.
     found = []
     seenAt = {}
     void loadProblems($).catch(() => undefined)
     return started
+  })
+  // The one unmatched prompt.context hook: the project card, in the context of the conversation's first message. The
+  // engine keeps the answer until a compaction or /clear reads it again; a card not built in time stays out.
+  on('prompt.context', async ($, e, next) => {
+    const context = await next(e)
+    const text = await quietly(() => Promise.race([cardNow($), $.clock.sleep(CARD_WAIT_MS).then(() => undefined)]))
+    return text ? { ...context, blocks: [...context.blocks, { name: CARD_BLOCK, text }] } : context
   })
   // The one unmatched prompt hook: a problem fixed any way at all leaves the band by the next prompt. Never awaited.
   on('prompt.submit', async ($, e, next) => {
@@ -242,6 +279,11 @@ export const register: Register = on => {
 /** Changes the marks of a stale project; false when the state couldn't be written. */
 function markStale($: EngineInterface, change: (stale: StaleProject | null) => StaleProject | null): Promise<boolean> {
   return quietly(() => update($, staleState, change).then(() => true)).then(Boolean)
+}
+
+/** The person's answer to `question`, or nothing when there's nobody to ask: a run without a person, or a dismissed dialog. */
+function ask($: EngineInterface, question: Question): Promise<string | undefined> {
+  return quietly(() => $.ui.ask(question.question, { options: [...question.options], header: question.header }))
 }
 
 /** Starts a program of the CLI's: the mod's one process. */
@@ -312,6 +354,43 @@ function cliText($: EngineInterface, args: string[]): Promise<string> {
 /** A run has the band while it shows; the problems wait beneath it. */
 function startRun($: EngineInterface, run: BandRun): Promise<unknown> {
   return update($, runState, () => run)
+}
+
+/** The project card from what earlier runs in this folder stored: their durations, and the branch's red tests. */
+async function cardNow($: EngineInterface): Promise<string | undefined> {
+  const [folder, now] = await Promise.all([$.session.cwd(), $.clock.now()])
+  const scopes = (await storedHistory($)).filter(entry => entry.where === folder && !isStale(entry.updated, now))
+  const { head, ledger } = await branchLedger($)
+  const red = ledger && !isStale(ledger.updated, now) ? ledger.entries.filter(entry => !entry.green && !isStale(entry.last, now)) : []
+  return cardText(scopes, red, head ? label(head, true) : '')
+}
+
+/** Every run scope the store holds, with its durations, when a run last updated it, its test total and its folder. */
+async function storedHistory($: EngineInterface): Promise<{ scope: string; runs: number[]; updated: unknown; tests?: number; where?: unknown }[]> {
+  const scopes = (await $.store.keys()).filter(key => key.startsWith(DURATIONS_PREFIX)).map(key => key.slice(DURATIONS_PREFIX.length))
+  return Promise.all(scopes.map(async scope => {
+    const [runs, updated, tests, where] = await Promise.all([historyKey, updatedKey, testsKey, whereKey].map(key => quietly(() => $.store.get(key(scope)))))
+    return { scope, runs: Array.isArray(runs) ? (runs as number[]) : [], updated, where, ...(typeof tests === 'number' ? { tests } : {}) }
+  }))
+}
+
+/** Counts a full-suite run toward the loop budget: the runs that crossed it, when this one did. */
+async function countFullRun($: EngineInterface, scope: string, run: FullRun) {
+  let crossed: Crossing | undefined
+  await update($, loopState, runs => {
+    const after = afterFullRun(runs[scope] ?? [], run)
+    crossed = after.crossed
+    return { ...runs, [scope]: after.runs }
+  })
+  return crossed
+}
+
+/** The checkout the CLI names, and its ledger. */
+async function branchLedger($: EngineInterface): Promise<{ head?: Head; ledger?: Ledger }> {
+  const head = headOf(await answer($, ['project', '--branch'], 10_000))
+  if (!head) return {}
+  const ledger = ledgerOf(await $.store.get(ledgerKey(head)))
+  return { head, ...(ledger ? { ledger } : {}) }
 }
 
 /** The doctor's last answer, and when each problem was first found: bookkeeping a reload may start over. */
@@ -398,15 +477,15 @@ async function writeLedger($: EngineInterface, run: TestRun): Promise<void> {
 /** The ledger of the branch checked out now, as text. */
 async function ledgerNow($: EngineInterface): Promise<string> {
   await ledgerWrites
-  const head = headOf(await answer($, ['project', '--branch'], 10_000))
-  if (!head) return LEDGER_UNAVAILABLE
-  return ledgerText(ledgerOf(await $.store.get(ledgerKey(head))), head)
+  const { head, ledger } = await branchLedger($)
+  return head ? ledgerText(ledger, head) : LEDGER_UNAVAILABLE
 }
 
 /** `/xcrew history`. */
 async function history($: EngineInterface): Promise<string> {
-  const tools = (await $.store.keys()).filter(key => key.startsWith(DURATIONS_PREFIX)).map(key => key.slice(DURATIONS_PREFIX.length))
-  const updated = Object.fromEntries(await Promise.all(tools.map(async tool => [tool, await quietly(() => $.store.get(updatedKey(tool)))] as const)))
+  const stored = await storedHistory($)
+  const tools = stored.map(entry => entry.scope)
+  const updated = Object.fromEntries(stored.map(entry => [entry.scope, entry.updated]))
   // Dating and dropping lines is bookkeeping: without a clock the history still shows, all of it.
   const now = await quietly(() => $.clock.now())
   const { kept, stamp, gone } = now === undefined ? { kept: tools, stamp: [], gone: [] } : keptHistory(tools, updated, now)
@@ -414,7 +493,7 @@ async function history($: EngineInterface): Promise<string> {
   // The durations go first: should a later delete fail, nothing undated is left to be dated afresh.
   await Promise.all(gone.map(async tool => {
     await quietly(() => $.store.delete(historyKey(tool)))
-    await Promise.all([updatedKey(tool), testsKey(tool)].map(key => quietly(() => $.store.delete(key))))
+    await Promise.all([updatedKey(tool), testsKey(tool), whereKey(tool)].map(key => quietly(() => $.store.delete(key))))
   }))
-  return historyText(await Promise.all(kept.map(async tool => ({ tool, runs: (await $.store.get(historyKey(tool))) as number[] | undefined }))))
+  return historyText(kept.map(tool => ({ tool, runs: stored.find(entry => entry.scope === tool)?.runs })))
 }

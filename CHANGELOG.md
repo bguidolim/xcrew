@@ -2,7 +2,21 @@
 
 ## Unreleased
 
+- When Claude runs the whole test suite again and again in a short while, the run that makes it a habit tells Claude to run only the tests the change can break, and the whole suite again before the pull request. A fast suite never hears it.
+- A project that pins its Xcode in `.xcode-version` builds and tests with it through MobileBuildMCP, even when another is selected. `xcrew doctor` says when the pin can't apply, when CI uses another Xcode, and when the Xcode that's open isn't the one builds use, which would put two toolchains in one session. `xcrew xcode` lists which is which.
 - With mcs, the plugin now loads straight from the pack's checkout instead of a second copy from the marketplace, so it always matches the pack. It shows as `xcrew@mcs-xcrew` and starts with empty plugin data. Requires mcs 2026.10.30. Add the pack with `mcs pack add breferrari/xcrew --ref stable`, or `ref: stable` in `mcs.yaml`, to get releases rather than unreleased code, and `xcrew doctor` now says `mcs update` for an mcs install.
+
+## 0.8.9 — 2026-10-30
+
+- When a test fails for no reason the change explains, Claude runs it alone several times, and Xcrew says whether it's flaky (failed some runs) or a real failure (failed every run). A flaky test stays red, marked flaky, in the red-to-green record and on the project card, until a repeated run passes it every time.
+- Of a build's warnings, Claude is told which are in lines your branch changed, so it fixes its own and leaves the rest. Warnings elsewhere are counted, never claimed new or old.
+- After a test run with coverage on, Claude is told which of the lines your branch changed that run ran, and which it didn't. The routing rules have Claude turn coverage on for a run before a pull request.
+
+## 0.8.8 — 2026-10-30
+
+- Before Claude edits a file your Tuist or XcodeGen project generates (inside the `.xcodeproj` or `.xcworkspace`, or Tuist's `Derived` folder), Xcrew asks you, since the next generate overwrites the edit. Say no, and Claude is pointed at the manifest to edit instead and the generate command. `XcodeWrite` in a generated project now asks the same way instead of being refused outright.
+- Each conversation starts with a short card in Claude's context: how long builds and test runs usually take in this folder, the tests still failing on the branch, and, when a full test run is slow, the selections run before. It's built from what Xcrew already recorded, sent once per conversation, and kept to a few lines.
+- `xcrew affected` lists the tests your branch's changes can break, from the targets the project says own the changed files and every target that depends on them, across the projects of a modular app. Claude asks it, through a tool of the mod's, before running the whole suite, and runs only those tests. When a change touches something it can't read, such as the project file, a scheme, an `.xcconfig`, a package or a manifest, it says to run everything and names the file.
 
 ## 0.8.7 — 2026-10-30
 

@@ -129,6 +129,33 @@ struct TestbedTests {
         #expect(answer.generate == Self.edits.first { $0.file == file }?.generate)
     }
 
+    /// Files a generator writes, and the manifest to edit instead; none for a file no generator writes, the source-file
+    /// trap's project included.
+    static let generatedFiles: [(file: String, manifest: String?)] = [
+        ("forms/tuist/App.xcodeproj/project.pbxproj", "Project.swift"),
+        ("forms/tuist/App.xcworkspace/contents.xcworkspacedata", "Project.swift"),
+        ("forms/tuist/Derived/InfoPlists/App-Info.plist", "Project.swift"),
+        ("forms/tuist/App/ContentView.swift", nil),
+        ("forms/tuist-ios/ios/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme", "ios/Project.swift"),
+        ("forms/xcodegen/App.xcodeproj/project.pbxproj", "project.yml"),
+        ("forms/xcodegen-ios/ios/App.xcodeproj/project.pbxproj", "ios/project.yml"),
+        ("forms/xcodegen-ios/ios/App/ContentView.swift", nil),
+        ("forms/classic/App.xcodeproj/project.pbxproj", nil),
+        ("adversarial/project-swift-trap/App.xcodeproj/project.pbxproj", nil),
+    ]
+
+    @Test(arguments: generatedFiles.map(\.file))
+    func aFileAGeneratorWritesNamesTheManifestToEdit(_ file: String) async throws {
+        let fixture = file.split(separator: "/").prefix(2).joined(separator: "/")
+        let root = try Self.copy(fixture)
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let edited = root.appending(path: String(file.dropFirst(fixture.count + 1)))
+        #expect(FileManager.default.fileExists(atPath: edited.path), "the test bed has no \(file)")
+        let context = CheckContext.fake(project: Project(root: root, home: root.appending(path: "home")))
+        let answer = try JSONDecoder().decode(ProjectCommand.Answer.self, from: Data(await Run("project", "--generated", edited.path, context: context).text.utf8))
+        #expect(answer.manifest == Self.generatedFiles.first { $0.file == file }?.manifest)
+    }
+
     /// The forms hold one app, so they differ only where a form must: its generator, and where the project sits.
     @Test func theFormsDifferOnlyInTheirGeneratorAndPlace() throws {
         let built = try Self.names.filter { !$0.hasPrefix("tuist-ungenerated") }.map { name in
@@ -194,5 +221,116 @@ enum Testbed {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CI"] == "true"))
     func ciHasTheTestBed() {
         #expect(Testbed.isCheckedOut, "XCREW_TESTBED names no test bed: \(Testbed.root.path)")
+    }
+}
+
+/// Each form ties files to targets its own way: file references, synchronized folders, the JSON format, and what Tuist
+/// and XcodeGen write. A change to the app or its tests selects `AppTests` in all of them.
+@Suite(.enabled(if: Testbed.isCheckedOut, "no test bed"))
+struct TestbedAffectedTests {
+    static let cases: [(fixture: String, changed: String)] = [
+        ("forms/classic", "App/ContentView.swift"), ("forms/classic", "AppTests/GreetingTests.swift"),
+        ("forms/classic-ios", "ios/App/ContentView.swift"),
+        ("forms/folders", "App/ContentView.swift"), ("forms/folders-ios", "ios/AppTests/GreetingTests.swift"),
+        ("forms/json", "App/ContentView.swift"), ("forms/json-ios", "ios/AppTests/GreetingTests.swift"),
+        ("forms/tuist", "App/ContentView.swift"), ("forms/tuist-ios", "ios/AppTests/GreetingTests.swift"),
+        ("forms/xcodegen", "App/ContentView.swift"), ("forms/xcodegen-ios", "ios/AppTests/GreetingTests.swift"),
+    ]
+
+    @Test(arguments: cases.map { "\($0.fixture)/\($0.changed)" })
+    func aChangeToTheAppOrItsTestsSelectsAppTests(_ path: String) throws {
+        let fixture = path.split(separator: "/").prefix(2).joined(separator: "/")
+        let root = try TestbedTests.copy(fixture)
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let affected = AffectedTests.of(changed: [String(path.dropFirst(fixture.count + 1))], in: Project(root: root))
+        #expect(affected.selections == ["AppTests"], "\(affected.runAll ?? "")")
+    }
+}
+
+/// A modular Tuist app, one project per module, App on Feature on Core: a module links the one below by its product,
+/// across projects. A change selects the tests of its module and of every module above it.
+@Suite(.enabled(if: Testbed.isCheckedOut, "no test bed"))
+struct TestbedModularAffectedTests {
+    static let cases: [(changed: String, selections: [String])] = [
+        ("Modules/Core/Sources/Core.swift", ["AppTests", "CoreTests", "FeatureTests"]),
+        ("Modules/Feature/Sources/Feature.swift", ["AppTests", "FeatureTests"]),
+        ("Modules/App/Sources/App.swift", ["AppTests"]),
+    ]
+
+    @Test(arguments: cases.map(\.changed))
+    func aChangeSelectsItsModulesTestsAndEveryModuleAbove(_ changed: String) throws {
+        let root = try TestbedTests.copy("modular/tuist-modules")
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let affected = AffectedTests.of(changed: [changed], in: Project(root: root))
+        #expect(affected.selections == Self.cases.first { $0.changed == changed }?.selections, "\(affected.runAll ?? "")")
+    }
+}
+
+/// No fixture holds a path of the Mac that made it: Tuist writes its own scheme with the absolute path it ran from.
+@Suite(.enabled(if: Testbed.isCheckedOut, "no test bed"))
+struct TestbedPrivacyTests {
+    @Test func noFixtureHoldsAnAbsolutePathOfTheMacThatMadeIt() async throws {
+        // The files the test bed commits: what a contributor generates or builds there stays out.
+        let listed = await SystemCommandRunner().run(["git", "-C", Testbed.root.path, "ls-files", "-z"], stdin: nil, timeout: .seconds(30))
+        #expect(listed.succeeded)
+        let leaks = listed.stdout.split(separator: "\0").map(String.init).filter { file in
+            let text = (try? String(contentsOf: Testbed.root.appending(path: file), encoding: .utf8)) ?? ""
+            return Self.holdsAHomePath(text)
+        }
+        #expect(leaks == [])
+    }
+
+    /// A home folder's path, as written or as JSON escapes it: `\/Users\/`.
+    static func holdsAHomePath(_ text: String) -> Bool {
+        let plain = text.replacingOccurrences(of: "\\/", with: "/")
+        return plain.contains("/Users/") || plain.contains("/home/")
+    }
+
+    @Test func aPathJSONEscapedIsStillAPath() {
+        #expect(Self.holdsAHomePath(#"["\/Users\/dev\/App\/Pricing.swift"]"#))
+        #expect(!Self.holdsAHomePath(#"["\/testbed\/captures\/coverage\/App\/Pricing.swift"]"#))
+    }
+}
+
+/// The test bed's capture of a real run with `-test-iterations 5`, replayed: the run itself never happens here.
+@Suite(.enabled(if: Testbed.isCheckedOut, "no test bed"))
+struct TestbedRepetitionTests {
+    @Test func aRealRunsRepetitionsGiveEachTestItsVerdict() throws {
+        let listing = try String(contentsOf: Testbed.root.appending(path: "captures/repetitions/tests.json"), encoding: .utf8)
+        let found = ResultBundle.repetitions(listing: listing)
+        #expect(found.map { "\($0.test) \($0.failed)/\($0.runs) \($0.verdict)" } == ["RepetitionTests/testFailsEveryOtherRun 2/5 flaky", "RepetitionTests/testFailsEveryRun 5/5 real", "RepetitionTests/testPassesEveryRun 0/5 passed"])
+    }
+}
+
+/// The test bed's capture of what xccov answered about a real run with coverage on, replayed: the test ran
+/// `price(for: 2)`, so of `Pricing.swift` every line ran but the discount's `return`, line 5.
+@Suite(.enabled(if: Testbed.isCheckedOut, "no test bed"))
+struct TestbedCoverageTests {
+    static let bundle = "/coverage/Run.xcresult"
+
+    func captured(_ file: String, in root: URL) throws -> String {
+        try String(contentsOf: root.appending(path: file), encoding: .utf8)
+            .replacingOccurrences(of: "\\/testbed\\/captures\\/coverage", with: root.path.replacingOccurrences(of: "/", with: "\\/"))
+    }
+
+    @Test func aRealRunsLineCountsSayWhichLinesRan() throws {
+        let pricing = try String(contentsOf: Testbed.root.appending(path: "captures/coverage/Pricing.json"), encoding: .utf8)
+        #expect(ChangedLineCoverage.lines(pricing) == [2: true, 3: true, 4: true, 5: false, 6: true, 7: true, 8: true])
+    }
+
+    /// The whole reading, from the captured answers, for a branch that wrote `price(for:)`'s body.
+    @Test func aChangedLineTheRealRunDidNotRunIsNamed() async throws {
+        let root = try TestbedTests.copy("captures/coverage")
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let project = Project(root: root)
+        var responses = FakeRunner.branch(at: root, changed: ["App/Pricing.swift"], diffed: ["\(ProjectLayout.canonical(root))/App/Pricing.swift"], diff: "+++ App/Pricing.swift\n@@ -2,0 +3,6 @@\n")
+        responses.merge([
+            "xcrun xccov view --archive --file-list --json \(Self.bundle)": .init(status: 0, stdout: try captured("file-list.json", in: root)),
+            "xcrun xccov view --archive --file \(root.path)/App/Pricing.swift --json \(Self.bundle)": .init(status: 0, stdout: try captured("Pricing.json", in: root)),
+        ]) { _, new in new }
+        let runner = FakeRunner(responses: responses)
+        let output = #"{"schema":"mobilebuildmcp.output.test-result","didError":false,"data":{"summary":{"status":"SUCCEEDED"},"artifacts":{"xcresultPath":"\#(Self.bundle)"}}}"#
+        let report = await Report.make(kind: .test, output: ToolOutput(text: output, server: .mobileBuildMCP), home: "/home", runner: runner, project: project)
+        #expect(report.notes.contains("xcrew: 5 of 6 changed lines that can run ran in this test run. Not run: Pricing.swift:5."), "\(report.notes)")
     }
 }

@@ -123,7 +123,7 @@ test('a branch\'s ledger no run has written for two weeks is dropped', async ($,
 test('Claude reads the ledger through a tool registered behind ToolSearch, and /xcrew ledger shows the same text', async ($, on) => {
   const { registered } = project(on, [FAILED])
   await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
-  expect(registered).toEqual([{ name: 'ledger', isDeferred: undefined }])
+  expect(registered).toContainEqual({ name: 'ledger', isDeferred: undefined })
   await run($)
   const shown = await runCommand($, 'xcrew', 'ledger')
   expect(shown.text).toBe(await ledgerText($))
@@ -212,4 +212,56 @@ test('a test no run has written for two weeks leaves the ledger, while the branc
   const text = await ledgerText($)
   expect(text).not.toContain(TEST)
   expect(text).toContain('Other/testOther')
+})
+
+// MARK: Flaky or real
+
+const REPEATED = ['-only-testing:AppTests/GreetingTests/testHello', '-test-iterations', '5', '-test-repetition-relaunch-enabled', 'YES']
+const repeat = (tool: Engine) => callTool(tool, 'mcp__MobileBuildMCP__test_sim', { extraArgs: REPEATED })
+const MIXED: Partial<Report> = { ...FAILED, repeated: [{ test: TEST, failed: 2, passed: 3, runs: 5, verdict: 'flaky' }] }
+const CLEAN: Partial<Report> = { ok: true, repeated: [{ test: TEST, failed: 0, passed: 5, runs: 5, verdict: 'passed' }] }
+const REAL: Partial<Report> = { ...FAILED, repeated: [{ test: TEST, failed: 5, passed: 0, runs: 5, verdict: 'real' }] }
+const SKIPPED: Partial<Report> = { ok: true, repeated: [{ test: TEST, failed: 0, passed: 0, runs: 5, verdict: 'none' }] }
+
+test('a flaky test stays red, marked flaky, and a later pass of one run doesn\'t green it', async ($, on) => {
+  project(on, [FAILED, MIXED, PASSED])
+  await run($, 'AppTests/GreetingTests/testHello')
+  await repeat($)
+  await run($, 'AppTests/GreetingTests/testHello')
+  const text = await ledgerText($)
+  expect(text).toContain(`Still red (1):\n- ${TEST} (flaky: failed 2 of 5 runs)`)
+  expect(text).not.toContain('Red, then green')
+})
+
+test('a flaky test is green once a repeated run passes it every time', async ($, on) => {
+  project(on, [FAILED, MIXED, CLEAN])
+  await run($, 'AppTests/GreetingTests/testHello')
+  await repeat($)
+  await repeat($)
+  expect(await ledgerText($)).toContain(`Red, then green, on feat/ledger (1 test):\n- ${TEST} (flaky: failed 2 of 5 runs)`)
+})
+
+test('a flaky test that later fails every run is a real failure, no longer marked flaky', async ($, on) => {
+  project(on, [FAILED, MIXED, REAL])
+  await run($, 'AppTests/GreetingTests/testHello')
+  await repeat($)
+  await repeat($)
+  const text = await ledgerText($)
+  expect(text).toContain(`Still red (1):\n- ${TEST}: red`)
+  expect(text).not.toContain('flaky')
+})
+
+test('a mixed result is flaky even when the failures leave the test out', async ($, on) => {
+  project(on, [FAILED, { ok: true, repeated: [{ test: TEST, failed: 2, passed: 3, runs: 5, verdict: 'flaky' }] }])
+  await run($, 'AppTests/GreetingTests/testHello')
+  await repeat($)
+  expect(await ledgerText($)).toContain(`Still red (1):\n- ${TEST} (flaky: failed 2 of 5 runs)`)
+})
+
+test('runs that gave no verdict clear nothing', async ($, on) => {
+  project(on, [FAILED, MIXED, SKIPPED])
+  await run($, 'AppTests/GreetingTests/testHello')
+  await repeat($)
+  await repeat($)
+  expect(await ledgerText($)).toContain(`Still red (1):\n- ${TEST} (flaky`)
 })

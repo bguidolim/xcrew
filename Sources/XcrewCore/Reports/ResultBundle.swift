@@ -1,9 +1,9 @@
 import Foundation
 
-/// What a run's result bundle adds to a failing MobileBuildMCP test run: where each failure
-/// happened (on parallel simulator clones xcodebuild logs none), a crash's exception and frames,
-/// why each skipped test was skipped, and the expected failures its counts leave out. One
-/// `xcresulttool` call per test, each well under a second.
+/// What a run's result bundle adds to a MobileBuildMCP test run: where each failure happened (on
+/// parallel simulator clones xcodebuild logs none), a crash's exception and frames, why each skipped
+/// test was skipped, the expected failures its counts leave out, and its coverage. One
+/// `xcresulttool` or `xccov` call per question, each well under a second.
 public struct ResultBundle: Sendable {
     public struct Skip: Sendable, Equatable {
         public let reason: String?
@@ -127,10 +127,10 @@ public struct ResultBundle: Sendable {
     }
 
     /// `: A, B and C`, or `: A, B, C, D, E and 2 more`; nothing without names.
-    static func listed(_ names: [String]) -> String {
+    static func listed(_ names: [String], separator: String = ", ") -> String {
         guard let last = names.last else { return "" }
-        if names.count > mostNamed { return ": " + names.prefix(mostNamed).joined(separator: ", ") + " and \(names.count - mostNamed) more" }
-        return names.count == 1 ? ": \(last)" : ": " + names.dropLast().joined(separator: ", ") + " and \(last)"
+        if names.count > mostNamed { return ": " + names.prefix(mostNamed).joined(separator: separator) + " and \(names.count - mostNamed) more" }
+        return names.count == 1 ? ": \(last)" : ": " + names.dropLast().joined(separator: separator) + " and \(last)"
     }
 
     // MARK: Asking xcresulttool
@@ -163,6 +163,24 @@ public struct ResultBundle: Sendable {
         await xcresulttool(["get", "test-results", "summary", "--path", path, "--compact"])
     }
 
+    // MARK: Asking xccov
+
+    /// The files the coverage archive holds, spelled as the build was started; none when the run gathered no coverage,
+    /// which the scheme, its test plan or `-enableCodeCoverage YES` turns on.
+    func coveredFiles() async -> [String] {
+        Self.parse(await xccov(["--file-list", "--json"])) as? [String] ?? []
+    }
+
+    /// One file's line counts, as `xccov` gives them.
+    func coverage(of file: String) async -> String {
+        await xccov(["--file", file, "--json"])
+    }
+
+    func xccov(_ arguments: [String]) async -> String {
+        let ran = await runner.run(["xcrun", "xccov", "view", "--archive"] + arguments + [path], stdin: nil, timeout: .seconds(15))
+        return ran.succeeded ? ran.stdout : ""
+    }
+
     /// A crash's summary, from the crash log the result bundle attached to the test.
     public func crash(of test: TestID) async -> [String]? {
         let folder = exportFolder()
@@ -175,4 +193,58 @@ public struct ResultBundle: Sendable {
         else { return nil }
         return Self.crashSummary(log: text)
     }
+}
+
+extension ResultBundle {
+    /// A test that ran more than once: how many runs failed and passed, of how many, and what that says.
+    public struct Repeated: Sendable, Equatable, Codable {
+        public let test: String
+        public let failed: Int
+        public let passed: Int
+        public let runs: Int
+        public let verdict: Verdict
+    }
+
+    /// Flaky when some runs failed and some passed, real when every run failed, passed when every run passed; none when
+    /// the runs say neither, as when they were skipped.
+    public enum Verdict: String, Sendable, Codable {
+        case flaky, real, passed, none
+    }
+
+    /// Each test that ran more than once, with its runs counted: a `Test Case` and every `Repetition` below it, under
+    /// each of its arguments for a parameterized Swift Testing test, in the listing's order.
+    public static func repetitions(listing: String) -> [Repeated] {
+        nodes(parse(listing)).compactMap { node in
+            guard node["nodeType"] as? String == "Test Case", let id = node["nodeIdentifier"] as? String else { return nil }
+            let runs = nodes(node["children"]).filter { $0["nodeType"] as? String == "Repetition" }
+            guard runs.count > 1 else { return nil }
+            let failed = runs.count { $0["result"] as? String == "Failed" }
+            let passed = runs.count { $0["result"] as? String == "Passed" }
+            let verdict: Verdict = failed > 0 && passed > 0 ? .flaky : failed == runs.count ? .real : passed == runs.count ? .passed : .none
+            return Repeated(test: TestID(xcresultID: id).shown, failed: failed, passed: passed, runs: runs.count, verdict: verdict)
+        }
+    }
+
+    /// Each repeated test's verdict, for Claude: the flaky and the failing named, a few at most, and the rest counted.
+    /// Nil when nothing ran more than once.
+    public static func repetitionsNote(_ repeated: [Repeated]) -> String? {
+        guard let runs = repeated.first?.runs else { return nil }
+        let decisions = repeated.filter { $0.verdict == .flaky || $0.verdict == .real }
+        let named = decisions.prefix(mostNamed).map { test in
+            test.verdict == .flaky ? "\(test.test) is flaky, failing \(test.failed) of \(test.runs)" : "\(test.test) failed every run, a real failure"
+        }
+        let unnamed = decisions.count > mostNamed ? ["and \(decisions.count - mostNamed) more flaky or failing"] : []
+        let passed = repeated.count { $0.verdict == .passed }
+        let undecided = repeated.count { $0.verdict == .none }
+        let each = repeated.allSatisfy { $0.runs == runs } ? "across \(runs) runs each" : "across repeated runs"
+        let counted = [
+            passed > 0 ? "\(passed) \(decisions.isEmpty ? "" : "more ")passed every run" : nil,
+            undecided > 0 ? "\(undecided) gave no verdict, skipped or expected to fail" : nil,
+        ].compactMap { $0 }
+        let head = (named + unnamed).joined(separator: "; ")
+        return "xcrew: \(each): " + [head.isEmpty ? nil : head + ".", counted.isEmpty ? nil : counted.joined(separator: "; ") + "."].compactMap { $0 }.joined(separator: " ")
+    }
+
+    /// For a run repeated whose result bundle couldn't be read, or held no repetitions.
+    static let noRepetitionsNote = "xcrew: this run repeated its tests, but its result bundle couldn't be read, so there's no verdict on which tests are flaky."
 }

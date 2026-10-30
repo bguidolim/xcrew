@@ -142,6 +142,13 @@ MobileBuildMCP 2.7.1 documents none of this, upstream or in its Homebrew install
 - **A named profile stands alone.** `session-store.js` reads a profile as `profiles[name] ?? {}`, with nothing from the global `sessionDefaults`. So an active profile without a scheme can't build or test, whether it's empty or absent.
 - **`simulatorId` is filled at startup, for the active profile only.** `bootstrap-runtime.js` resolves the active profile's `simulatorName` to an ID. `session_use_defaults_profile` never does, so after a switch, tools that need an ID, such as `screenshot`, fail with `simulatorId is required`. Setup writes each profile's ID itself, from `simctl`.
 - **`session_set_defaults` with a `simulatorId` clears `simulatorName`**, and **`screenshot` takes no display parameter**, so it fails on a simulator with two displays. Both were seen with Xcode 27.2 beta 3.
+- **Xcode's scheme selection writes over the active profile's scheme** (read October 30, 2026). A `test_sim` call names no scheme, so it uses the active profile's. Four things set that scheme:
+  - the config's `activeSessionDefaultsProfile` and that profile's `scheme`, at startup (`runtime/bootstrap-runtime.js`);
+  - `session_use_defaults_profile`;
+  - `session_set_defaults`;
+  - Xcode's own selection, unless the config sets `disableXcodeAutoSync`. `server/bootstrap.js` reads it from Xcode's `xcuserstate` at startup and calls `sessionStore.setDefaults({ scheme })`, which writes into the active profile. `utils/xcode-state-watcher.js` then follows that file and does the same on every change (`processFileChange`). Setup doesn't set `disableXcodeAutoSync`.
+
+  So neither the config nor the profile switches Claude makes say which scheme a run used. The mod keys a run's history by the call's `scheme` argument, and a run without one under its tool alone, mixing schemes rather than naming a wrong one. `test_sim` does build an `invocationRequest` from the defaults it used (`mcp/tools/simulator/test_sim.js`): the result schema has `data.request.scheme`, and the text renderer (`utils/renderers/domain-result-text.js`) prints a `Scheme:` line from it. No result captured here carries either, so whether one reaches Claude is still to be seen on a live run.
 
 `mobilebuildmcp --version` takes about 0.5 s, most of what `xcrew doctor --problems` costs (0.51 to 0.56 s in a one-project tree on October 29, 2026, M1 Max, macOS 27.0.1). The band asks the doctor again after prompts, so the CLI keeps the answer in its cache folder, keyed by the binary's resolved path and modification time. Homebrew links the command into a folder named for the version, so an upgrade changes the key.
 
@@ -227,6 +234,112 @@ A run turns a red green when it ran the test without failing it:
 - A failing run counts as well, for the reds it ran that aren't among its failures, as long as it got as far as running tests.
 
 A run whose report the CLI couldn't read is left out, since its outcome would be a guess. Writes happen after the run's result goes back to Claude, one after another, and reading the ledger waits for them.
+
+## What a generator writes
+
+An edit to a file a generator writes is lost on its next generate, so the mod asks the person before one runs. Read October 30, 2026:
+- **Tuist** (*Synthesized files*): it will "synthesize the content of those files and write them into the `Derived` directory". That directory is "relative to the directory containing the project that defines them", and the docs say to "add the `Derived` directory to the `.gitignore` file of your project". Tuist also writes the `.xcodeproj` and `.xcworkspace`.
+- **XcodeGen** (*ProjectSpec*): "Plists are created on disk on every generation of the project", at a target's `info` or `entitlements` path. The `.xcodeproj` is named by the spec's `name`.
+
+What sits beside a bundle or a `Derived` folder decides whose it is, so each app in a repository is guarded and a dependency's checked-in project isn't:
+- An XcodeGen spec writes only the `.xcodeproj` its `name` names, so a workspace CocoaPods wrote beside it isn't XcodeGen's.
+- A Tuist manifest, by detection's rule (its ProjectDescription import below the root), writes the project, the workspace and `Derived`.
+
+A Write that creates a file is matched through its nearest existing folder, since `/var` is `/private/var` on disk.
+
+XcodeGen's `info` and `entitlements` paths aren't counted yet, because reading them needs the spec's target keys. The mod's first look matches bundle names as the CLI does, case and all. It reads the whole path, so a project checked out below a folder named `Derived` asks the CLI on every edit, which answers no.
+
+`$.ui.ask`, per the engine's types (Claude Code 2.1.312), "Rejects when dismissed, and in a `-p` run (no one to ask)". Either way the mod refuses the call with the reason, as it did before it asked. The types name no error that tells a dismissal from a failure to show the dialog, so any rejection refuses. A typed answer refuses too, carrying the person's words, rather than the mod reading their intent.
+
+## The project card
+
+The card reaches Claude in the context of a conversation's first message, which a mod adds with a `prompt.context` hook. The engine's types (Claude Code 2.1.312, read October 30, 2026) say the event:
+- "Fires once per conversation, when the engine computes the context blocks its first user message carries";
+- has an answer that "stands until `$.ui.invalidate("prompt.context")` or a re-read (compaction, `/clear`)";
+- treats a block whose name the engine doesn't route as one that "reaches the model in one copy … While it stands, a later answer adds, changes and takes back none."
+
+So the engine sends the card once, and keeps it unchanged until the conversation is compacted or cleared. An earlier draft added it to the system prompt through `prompt.compose`, which "Fires when the engine renders a system prompt", so every prompt. Holding the card fixed there needed module state, which a reload clears, and a first prompt that came before the card was built locked it out for the session.
+
+The hook waits for the card at most `CARD_WAIT_MS`, so a slow CLI (a first run building it, say) leaves the card out of that conversation rather than holding the request.
+
+Whether a subagent's or a `--bare` session's first message fires `prompt.context` the docs don't say, and the event's input carries no `agentId` or traits to tell. The card is short either way.
+
+The store is the plugin's, across every project, and a run scope (`test_sim · App`) doesn't name one. So each run records the session's folder (`$.session.cwd()`), and the card shows only scopes last run in this folder. Scopes from before that record stay out until they run again. The card is capped in lines and characters, with longer lists counted as "+N more".
+
+## Affected tests
+
+`xcrew affected` reads which target owns each changed file, and which targets depend on which, from the project file. Saying "skip this" wrongly lets broken code look green, so whatever the reading doesn't model runs everything, with the reason named.
+
+- **The JSON format** (`project.xcproj`): the keys come from Apple's `xcode-project-format` package (its *Schema Overview* and its `Schema` sources, read October 30, 2026):
+  - a file's and a folder's `target-membership`;
+  - a folder's `membership-exceptions`, each with a `target` and `inclusions` or `exclusions`;
+  - a target's `dependencies` and `test-host-target`.
+
+  In the overview's words, "Groups do not participate in targets", while a folder's discovered content "is implicitly added to the folder's targets". The test bed's files carry trailing commas, so they're read with `JSONSerialization`'s `.json5Allowed`.
+- **`project.pbxproj`** is undocumented. It's read as an OpenStep property list through `PropertyListDecoder`, whose docs don't name the formats it reads; the test bed's classic forms pin that it reads this one. `PropertyListSerialization` would take a format pointer, which strict memory safety refuses. Files join targets through PBXBuildFile and build phases, with paths resolved through groups and `sourceTree`. Folders join through PBXFileSystemSynchronizedRootGroup, a test bundle's host through the product its `TEST_HOST` names.
+- **Running everything:**
+  - a change inside a project or workspace bundle (the project file, schemes);
+  - an `.xcconfig`, `.xctestplan`, `Package.swift` or `Package.resolved`;
+  - a manifest the generator reads;
+  - a file no target owns, or one an exception set moves;
+  - a linked product, test host or dependency that no project the workspace reads builds;
+  - a project file that can't be read.
+- **Dependents count at any depth.** A change to a framework selects the tests of every target that builds on it, however far up.
+- **What counts as depending:**
+  - an explicit dependency;
+  - a test bundle's host;
+  - linking another target's product (a `BUILT_PRODUCTS_DIR` reference in a build phase, a `<PRODUCTS>` file's `target-membership`), which Xcode follows implicitly.
+
+  Targets of the same name in two projects keep every dependency. Across projects, a modular Tuist app connects its modules by product alone: App links `Feature.framework`, which only Feature's project builds, with no dependency entry (the test bed's `modular/tuist-modules`, Tuist 4.214.0, October 30, 2026). So each project records what it builds and what it links without building, and the workspace resolves those links across every project it reads. A dependency entry can also point into another project, through a proxy whose container is that project's file; it resolves by the target its `remoteInfo` names. A linked product or a proxied target that no project here builds runs everything.
+- **Ownership:** a file inside a bundle the project lists whole (an asset catalog, a data model) is the bundle's. An exception set naming a folder covers the files under it.
+- **The change:** git lists it with `--no-renames`, so a moved file's old owner counts too, and with `-z` and `--no-relative`, so every name comes back as written. With no `origin/HEAD` (a clone sets it, a push doesn't), `origin/main` and then `origin/master` are tried. With a remote but none of them, everything runs. Only with no remote at all is the working tree the change.
+- **The loop budget:** the routing rules ask for `affected` before a full run, but a rule read at session start fades in an edit-and-test loop. So when one scope's last few full runs all fall within a short window and add up to minutes of testing, the result of the run that crossed it sends Claude to `affected`, once; then the count starts again. The numbers are `LOOP_RUNS`, `LOOP_WINDOW_MS` and `LOOP_TESTING_MS` in `hooks/mod/loop.ts`, as of October 30, 2026: 3 runs, 30 minutes and 3 minutes. A suite that takes 20 s never crosses them, however often it runs. A full run is one the CLI read, that ran tests, and that ran its scheme's whole suite once: a `-only-testing:` selection, a `-skip-testing:` run, a repeat, or a run narrowed or retried by another option `man xcodebuild` names (`-only-test-configuration`, `-skip-test-configuration`, `-testPlan`, `-retry-tests-on-failure`, `-run-tests-until-failure`) doesn't count, nor does a test build that failed. The count is the session's, so another session on the branch doesn't add to it. The note never blocks a run, it says the tool is behind ToolSearch, and when `affected` says to run the whole suite, Claude does. For the Xcode MCP the note names `affected` alone: its own selection tool isn't confirmed yet. A scheme chosen by a MobileBuildMCP profile rather than the call's `scheme` shares the bare `test_sim` scope, as the run's duration history does.
+- Paths are compared as the file system spells the project's folder, `.` and `..` resolved by their words. `standardizedFileURL` would drop `/private` from `/private/var` and miss.
+
+## Flaky or real
+
+Running a failing test again settles whether it's flaky. Read October 30, 2026:
+- **`man xcodebuild`** (Xcode 27.2): `-test-iterations number` means "tests will run number times". `-retry-tests-on-failure` and `-run-tests-until-failure` cap that number, so a run stops at the first pass or the first failure. `-test-repetition-relaunch-enabled YES` gives each repetition "a new process".
+- **Apple's *Diagnose unreliable code with test repetitions*** (WWDC21): fixed iterations repeat "regardless of the status" and are "great for understanding the reliability of your test suite", while retrying "can hide problems in the actual product". So the routing rules ask for `-test-iterations 5` with a relaunch, never the modes that stop early.
+- **`xcresulttool get test-results tests --schema`** (schema 0.5.0): a test's runs are its `Repetition` children, each with its own `result`.
+
+**MobileBuildMCP passes both flags through.** MobileBuildMCP 2.7.1's `utils/test-common.js` and `simulator-test-execution.js` send `extraArgs` that aren't selectors to both its build-for-testing and test-without-building phases. `utils/test-source.js` filters out only `-project`, `-scheme`, `-destination`, `-derivedDataPath`, `-configuration`, `-testProductsPath`, `-workspace`, `-xctestrun` and the action names. The man page doesn't say whether build-for-testing takes test options. Run on this Mac on the test bed's classic form, it took both and built, printing only "Running tests repeatedly 5 times."
+
+**The verdict:** a test that failed some of its runs and passed others is flaky, whatever the count, since a minimum would hide the rarest flakes. Failing every run makes it a real failure. The ledger keeps a flaky test red, marked flaky, until a repeated run passes it every time; one run passing it is no evidence.
+
+The mod knows a repeated run by `-test-iterations` in its `extraArgs`, and only then has the report read the bundle's test list. The test bed's `captures/repetitions` pins the reading: a real run's `xcresulttool` answer for three tests run five times each, passing every run, failing every run, and failing every other run, made on the Mac and replayed, so nothing nondeterministic runs in CI.
+
+## Warnings in changed lines
+
+A large project builds with hundreds of warnings, and a few new ones among them go unseen. The report names the warnings that fall in lines the branch changed since its merge base with the default branch, uncommitted and untracked files included: the change `xcrew affected` reads, through `GitChanges`. No state is kept. An edit that only moves a line doesn't make its warning look new, and the answer is right on a branch's first build.
+
+- **The lines:** `git diff -U0` (`git help diff`, read October 30, 2026: "Generate diffs with <n> lines of context") gives each hunk's header and nothing around it. The header follows the unified format, `@@ -l,s +l,s @@`: the new side's start and count, where a count of 0 adds no line and an omitted count means one. It's run with `--no-prefix`, `--no-renames`, `--no-relative` and `core.quotePath=false`, and only over the files with a warning: when none of them changed, it doesn't run. A header still writes a name with a space followed by a tab, and C-quotes one with a quote, a backslash or a control character; both are read back. Lines end at the `\n` byte, since a CRLF file's `\r\n` is one Swift Character. Its hunk lines are counted off from the header, since a removed `-- a` prints as `--- a`, like a file's header. An untracked file counts whole. Checked on macOS 27.0.1 with git 2.56.0 on APFS, October 30, 2026, and pinned by `gitGivesTheChangedLinesOfEveryKindOfName`: an absolute pathspec spelled `/private/var/...` selects the file from a repository opened as `/var/...`, and the space and quote shapes above are what came back.
+- **The warnings:** MobileBuildMCP's `⚠` lines with the `/path:line` after each, read before repeats are collapsed, its JSON's `diagnostics.warnings`, and the Xcode MCP's build entries whose `classification` is `warning`. One listed again at the same place counts once, and the total counts those without a place too. A warning's path is compared as the file system spells it (`/private/var` for a temporary folder at `/var`), as the compiler writes it.
+- **Its gap:** a warning the change causes in a line it didn't touch, such as each call site of an API it newly deprecated, isn't named. The note says which warnings are in changed lines, and never that a change added no warnings.
+
+## Changed lines a test run ran
+
+A test run that passes says nothing about the lines a change added that no test ran. When a MobileBuildMCP test run's result bundle has coverage, the report counts the lines the branch changed that can run, the ones the run ran, and names the rest, with the changed files the coverage doesn't hold. The change is the one *Warnings in changed lines* reads. The note speaks for this run alone: a run limited by `-only-testing` doesn't run a line another test would.
+
+- **Whether there is coverage:** `xcresulttool get content-availability --path` answers `hasCoverage`, but the archive's file list answers it too: without coverage, `xccov` fails with "No coverage data in result bundle", so xcrew asks for the list alone. MobileBuildMCP 2.7.1's `test_sim` doesn't turn it on: the scheme, its test plan or `-enableCodeCoverage YES` in `extraArgs` does, and it passes `extraArgs` through. The routing rules ask for it on a run before a pull request, since it slows the run.
+- **The lines:** `xccov view --archive --file-list --json` lists the archive's files, and `--file <path> --json` gives one file's lines (`man xccov`, read October 30, 2026: "the raw execution counts for each file"). MobileBuildMCP's `get_file_coverage` reads it the same way. Its JSON isn't documented. Probed on macOS 27.0.1 with Xcode 27.2 (27B5038j) on APFS, a Swift package and the test bed's app tested with coverage on, it's `{"<path>": [{"line": 1, "isExecutable": false}, {"line": 4, "isExecutable": true, "executionCount": 1, "subranges": [...]}]}`. A line counts as run when its `executionCount` is above 0, whatever its subranges say. The test bed's `captures/coverage` keeps a real answer that tests replay, and the weekly canary checks the newest Xcode's against xcrew's reading (`scripts/coverage-shape.sh`).
+- **The paths:** the archive spells each file as the build was started: `/tmp/...` where the file system says `/private/tmp/...`. Both sides are compared as the file system spells them. Only the archive's files named like a changed file are resolved, since an app's archive can list thousands, and their line counts are asked of `xccov` a few at a time, within a budget: past it the note is dropped and the rest of the report stands.
+- **Files outside the coverage:** a changed file is named when its kind (its extension) is one the archive holds and the archive doesn't hold it. Only files under the project count, and never a package's or Tuist's manifest, which the build reads and no test runs. A file `xccov` can't give counts for leaves no note, rather than a count it can't back. In the probe, a package's generated scheme gathered coverage for its test target and not its library, so this is common.
+- **The Xcode MCP:** its test results carry no result bundle path xcrew reads, so its runs have no note.
+
+## Which Xcode
+
+A Mac with several Xcodes builds every project with whichever `xcode-select` last chose. A project that pins its own builds with it, and the doctor says when CI, or the Xcode that's open, uses another.
+
+- **The pin is `.xcode-version`.** It's xcodes' published convention (`XCODE_VERSION.md`, read October 30, 2026): one version string, such as `16.4` or `14.0b6`, in a file beside the project or workspace. xcodes and fastlane read it. xcrew looks at the root and beside each Xcode container, and compares by the version's numbers, so `27.2b3` and `27.2.0` both name 27.2. Setup never writes one: a pin is the team's choice. The doctor suggests one only when several Xcodes are installed and CI names its own.
+- **Applying it:** `man xcode-select` says `DEVELOPER_DIR` "overrides the active developer directory" for the process that has it. MobileBuildMCP 2.7.1 has no Xcode setting of its own (its source has none), and its `xcodebuild` and `simctl` inherit the server's environment. So `libexec/mobilebuildmcp-server` sets `DEVELOPER_DIR` to the pinned Xcode's developer folder before it starts the server.
+  - It asks the CLI (`xcrew xcode --developer-dir`) only when a quick look finds an `.xcode-version`: the root, then three levels down, past hidden folders and those the project walk skips (`node_modules`, `Pods` and the like), whose pins are other projects'. It's looser than the CLI's rule, so a pin it finds that the CLI doesn't count costs one short call. The CLI checks the pin first and looks in the applications folder before Spotlight.
+  - It asks only of a build that's there, through the shim's `--if-built`, and for at most `PIN_SECONDS`. A first build takes seconds and would hold up the server's start, so it never starts one.
+  - On no answer, it starts the server as it would without a pin.
+- **The record:** what the launcher did goes in xcrew's cache, below `launches` at the project's real path with a `.launch` suffix (so a project inside another has its own), as facts: `applied <developer folder>`, `no match`, `not built`, `timed out <seconds>` (the timer stopped the CLI, status 143) or `failed <status>`. `xcode/pin` reads it and words it. The launcher writes it and then becomes the server (`exec` keeps its process), so the running server's record is no older than its start, by `ps`'s `etime`: an older one is an earlier start's, and the server started before the pin. With no server serving the project, as from a terminal before a session, nothing has had the pin to apply yet, and `xcode/pin` says only that. A path in another letter case reaches the same record on a case-insensitive volume, and on a case-sensitive one it's another folder anyway. The doctor can't read the server's environment instead: on macOS 27.0.1, `ps -E` printed no environment even for a child of the same shell, so the record is the only witness.
+- **The installed Xcodes:** the apps in `/Applications` and those Spotlight finds by `kMDItemCFBundleIdentifier == 'com.apple.dt.Xcode'`, each read from its `Info.plist` (`CFBundleShortVersionString`) and `version.plist` (`ProductBuildVersion`). On this Mac (October 30, 2026), Xcode 27.2 beta 3's version reads plain `27.2`, with only its build, `27B5038j`, telling it apart, and Xcodes.app shares the `Xcode` prefix. So a bundle counts by its identifier, not its name. Some past release builds also ended in a letter (15.0's was `15A240d`), so nothing is read as a beta by its build. When a beta and a release share a version, a pin without a `b<n>` prefers the app whose name doesn't say beta, one with it the app whose name does, and the first by path among equals, in the launcher's lookup and the doctor's alike.
+- **The open Xcode:** the Xcode MCP works through the Xcode that's running, which no pin changes. `xcode/open` finds it by its process (`ps -axo comm=` ends in `.app/Contents/MacOS/Xcode`), and calls a different one from MobileBuildMCP's two toolchains in one session. That process shape is `ps`'s full executable path, not yet seen here with Xcode open.
+- **CI:** only GitHub Actions workflows are read. A version is named three ways: `maxim-lobanov/setup-xcode`'s `xcode-version` (a SemVer string, `latest`, `latest-stable` or `<semver>-beta`, from its README), `xcode-select -s` to an app, and `DEVELOPER_DIR` inside one. `latest`, `latest-stable` and ranges name no version that can be compared. A partial version covers what it begins (setup-xcode resolves `26` to the newest 26.x), a matrix passes when one of its versions covers the project's, and a line's YAML comment is skipped. Xcode Cloud, Bitrise, CircleCI, GitLab and other CI systems are out of scope.
 
 ## Toolchains
 

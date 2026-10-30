@@ -41,11 +41,36 @@ public struct Project: Sendable, Equatable {
     /// `.xcworkspace` and `.xcodeproj` paths relative to the root, nearest first and workspaces first: setup's default container.
     public var xcodeContainers: [String] { layout(.anywhereButHome).containers }
 
+    /// The file a project pins its Xcode in, as xcodes' `XCODE_VERSION.md` names it: one version, beside the project or
+    /// its workspace.
+    public static let xcodePinFile = ".xcode-version"
+
+    /// The Xcode the project pins and the file it's in: at the root, else beside one of its Xcode containers, which are
+    /// looked for only when the root has none.
+    public var xcodePin: (version: String, file: String)? {
+        func read(_ file: String) -> (version: String, file: String)? {
+            guard let text = try? String(contentsOf: root.appending(path: file), encoding: .utf8) else { return nil }
+            let version = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return version.isEmpty ? nil : (version, file)
+        }
+        if let pin = read(Self.xcodePinFile) { return pin }
+        let folders = Set(xcodeContainers.map { URL(fileURLWithPath: $0).deletingLastPathComponent().relativePath }).subtracting(["."]).sorted()
+        return folders.lazy.compactMap { read("\($0)/\(Self.xcodePinFile)") }.first
+    }
+
     /// The bundles that hold an Xcode workspace or project, workspaces first.
     public static let containerExtensions = [".xcworkspace", ".xcodeproj"]
 
     static func isXcodeContainer(_ name: String) -> Bool {
         containerExtensions.contains { name.hasSuffix($0) }
+    }
+
+    static func isXcodeWorkspace(_ name: String) -> Bool {
+        name.hasSuffix(containerExtensions[0])
+    }
+
+    static func isXcodeProject(_ name: String) -> Bool {
+        name.hasSuffix(containerExtensions[1])
     }
 
     /// How far below the root session start searches this project.

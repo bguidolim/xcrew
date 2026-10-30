@@ -8,9 +8,9 @@ import XcrewCore
 struct ProjectCommand: Command {
     let name = "project"
     let flags: Set<String> = ["setup", "branch"]
-    let valuedOptions: Set<String> = ["manifest"]
+    let valuedOptions: Set<String> = ["manifest", "generated"]
     let usage = [
-        "project [--setup] [--manifest <file>] [--branch]   whether a generator writes this project, as JSON; --setup adds the container setup would use, --manifest the command that regenerates the project after an edit to <file>, when the generator reads it, and --branch the real root with the branch or commit checked out",
+        "project [--setup] [--manifest <file>] [--generated <file>] [--branch]   whether a generator writes this project, as JSON; --setup adds the container setup would use, --manifest the command that regenerates the project after an edit to <file>, when the generator reads it, --generated the manifest to edit instead of <file>, when the generator writes it, and --branch the real root with the branch or commit checked out",
     ]
 
     struct Answer: Codable, Equatable {
@@ -25,6 +25,13 @@ struct ProjectCommand: Command {
         var root: String?
         var branch: String?
         var commit: String?
+        /// With `--generated`: the manifest to edit instead of the file, when a generator writes it, from the root.
+        var manifest: String?
+    }
+
+    /// A file the mod names: absolute, as an edit tool gives it, or from the project's root.
+    static func file(_ argument: String, in project: Project) -> URL {
+        argument.hasPrefix("/") ? URL(fileURLWithPath: argument) : project.root.appending(path: argument)
     }
 
     func run(_ invocation: Invocation) async throws -> Int32 {
@@ -33,9 +40,13 @@ struct ProjectCommand: Command {
         let nearest = layout.generator
         var answer = Answer(isGenerated: nearest != nil)
         if let manifest = invocation.arguments["manifest"], let nearest {
-            let file = manifest.hasPrefix("/") ? URL(fileURLWithPath: manifest) : project.root.appending(path: manifest)
-            let found = layout.command(after: file, nearest: nearest)
+            let found = layout.command(after: Self.file(manifest, in: project), nearest: nearest)
             (answer.generate, answer.app) = (found?.command, found?.manifests.path)
+        }
+        if let generated = invocation.arguments["generated"], let nearest {
+            if let writer = layout.writer(of: Self.file(generated, in: project), nearest: nearest) {
+                (answer.manifest, answer.generate, answer.app) = (writer.manifest, writer.manifests.generateCommand, writer.manifests.path)
+            }
         }
         if invocation.arguments.has("branch") {
             answer.root = project.canonicalRoot

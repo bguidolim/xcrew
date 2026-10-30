@@ -4,10 +4,9 @@ import Foundation
 /// as `git diff -U0` gives them: a warning in one of them is in code the change touched (docs/findings.md, *Warnings
 /// in changed lines*).
 enum ChangedLines {
-    /// The changed lines of each of `paths` the branch changed, by the path as given; an untracked file counts whole.
-    /// Nothing when git can't say what changed.
-    static func of(_ paths: some Sequence<String>, in project: Project, using runner: any CommandRunning) async -> [String: [ClosedRange<Int>]]? {
-        guard case let .success(change) = await GitChanges.since(nil, in: project, using: runner) else { return nil }
+    /// The changed lines of each of `paths` the change holds, by the path as given; an untracked file counts whole.
+    /// Nothing when git can't diff the change.
+    static func of(_ paths: some Sequence<String>, in change: GitChanges.Change, project: Project, using runner: any CommandRunning) async -> [String: [ClosedRange<Int>]]? {
         let given = Dictionary(grouping: Set(paths), by: ProjectLayout.canonicalPath)
         let untracked = Set(change.untracked)
         let tracked = change.files.filter { given[$0] != nil && !untracked.contains($0) }

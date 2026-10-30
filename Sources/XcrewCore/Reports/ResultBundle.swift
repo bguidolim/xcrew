@@ -1,9 +1,9 @@
 import Foundation
 
-/// What a run's result bundle adds to a failing MobileBuildMCP test run: where each failure
-/// happened (on parallel simulator clones xcodebuild logs none), a crash's exception and frames,
-/// why each skipped test was skipped, and the expected failures its counts leave out. One
-/// `xcresulttool` call per test, each well under a second.
+/// What a run's result bundle adds to a MobileBuildMCP test run: where each failure happened (on
+/// parallel simulator clones xcodebuild logs none), a crash's exception and frames, why each skipped
+/// test was skipped, the expected failures its counts leave out, and its coverage. One
+/// `xcresulttool` or `xccov` call per question, each well under a second.
 public struct ResultBundle: Sendable {
     public struct Skip: Sendable, Equatable {
         public let reason: String?
@@ -161,6 +161,24 @@ public struct ResultBundle: Sendable {
 
     public func summary() async -> String {
         await xcresulttool(["get", "test-results", "summary", "--path", path, "--compact"])
+    }
+
+    // MARK: Asking xccov
+
+    /// The files the coverage archive holds, spelled as the build was started; none when the run gathered no coverage,
+    /// which the scheme, its test plan or `-enableCodeCoverage YES` turns on.
+    func coveredFiles() async -> [String] {
+        Self.parse(await xccov(["--file-list", "--json"])) as? [String] ?? []
+    }
+
+    /// One file's line counts, as `xccov` gives them.
+    func coverage(of file: String) async -> String {
+        await xccov(["--file", file, "--json"])
+    }
+
+    func xccov(_ arguments: [String]) async -> String {
+        let ran = await runner.run(["xcrun", "xccov", "view", "--archive"] + arguments + [path], stdin: nil, timeout: .seconds(15))
+        return ran.succeeded ? ran.stdout : ""
     }
 
     /// A crash's summary, from the crash log the result bundle attached to the test.

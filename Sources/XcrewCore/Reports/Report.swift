@@ -65,10 +65,26 @@ public struct Report: Sendable, Equatable, Codable {
         let bundle = isTest ? ResultBundle.path(in: read, home: home).map { ResultBundle(path: $0, runner: runner) } : nil
         // The summary is needed whatever the run came to, so it's asked for while the failures are looked up.
         async let bundleSummary: String? = { await bundle?.summary() }()
-        // Which lines the branch changed is asked of git meanwhile, for the warnings that name a place.
+        // What the branch changed is listed once, by whichever asks first, meanwhile: for the warnings that name a
+        // place, and for a test run with coverage.
         let warnings = read.warnings
         let warned = warnings.compactMap(\.path)
-        async let changed: [String: [ClosedRange<Int>]]? = { if let project, !warned.isEmpty { await ChangedLines.of(warned, in: project, using: runner) } else { nil } }()
+        let change = Once { () async -> GitChanges.Change? in
+            guard let project, case let .success(change) = await GitChanges.since(nil, in: project, using: runner) else { return nil }
+            return change
+        }
+        async let changed: [String: [ClosedRange<Int>]]? = {
+            guard let project, !warned.isEmpty, let listed = await change.value() else { return nil }
+            return await ChangedLines.of(warned, in: listed, project: project, using: runner)
+        }()
+        async let coverage: ChangedLineCoverage? = {
+            guard let project, let bundle else { return nil }
+            return await ChangedLineCoverage.within(ChangedLineCoverage.budget) {
+                let covered = await bundle.coveredFiles()
+                guard !covered.isEmpty, let listed = await change.value() else { return nil }
+                return await ChangedLineCoverage.of(covered, in: listed, bundle: bundle, project: project, using: runner)
+            }
+        }()
         var final = read
         var edited = false
         // A saved result stays saved unless it's compacted below: Claude Code saved it for its size, which the collapse alone may not cut enough.
@@ -107,6 +123,8 @@ public struct Report: Sendable, Equatable, Codable {
             }
             if let note = warningsNote(inChanged, of: warnings.count) { notes.append(note) }
         }
+
+        if let note = await coverage?.note { notes.append(note) }
 
         let compact = saved.flatMap { final.compactTestResult(savedPath: $0) } ?? (saved == nil ? final.compactTestText : nil)
         return Report(

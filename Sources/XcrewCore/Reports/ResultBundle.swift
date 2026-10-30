@@ -12,12 +12,12 @@ public struct ResultBundle: Sendable {
 
     public let path: String
     let runner: any CommandRunning
-    /// A fresh folder for one crash log export; tests pass one they have filled.
+    /// A fresh folder for one export of a test's attachments; tests pass one they have filled.
     let exportFolder: @Sendable () -> URL
     /// The run's test list, which skips and expected failures both read: asked for once, when first needed.
     let listing: Once<String>
 
-    public init(path: String, runner: any CommandRunning, exportFolder: @escaping @Sendable () -> URL = { FileManager.default.temporaryDirectory.appending(path: "xcrew-crash-\(UUID().uuidString)") }) {
+    public init(path: String, runner: any CommandRunning, exportFolder: @escaping @Sendable () -> URL = { FileManager.default.temporaryDirectory.appending(path: "xcrew-attachments-\(UUID().uuidString)") }) {
         self.path = path
         self.runner = runner
         self.exportFolder = exportFolder
@@ -181,17 +181,37 @@ public struct ResultBundle: Sendable {
         return ran.succeeded ? ran.stdout : ""
     }
 
-    /// A crash's summary, from the crash log the result bundle attached to the test.
-    public func crash(of test: TestID) async -> [String]? {
+    /// A test's attachments, exported to a fresh folder that `read` reads before it's removed: every one, or with
+    /// `onlyFailures` only those associated with its failure.
+    func attachments<T>(of test: TestID, onlyFailures: Bool, _ read: (URL) -> T) async -> T {
         let folder = exportFolder()
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
-        _ = await xcresulttool(["export", "attachments", "--path", path, "--output-path", folder.path, "--test-id", test.xcresultID, "--only-failures"])
+        _ = await xcresulttool(["export", "attachments", "--path", path, "--output-path", folder.path, "--test-id", test.xcresultID] + (onlyFailures ? ["--only-failures"] : []))
+        return read(folder)
+    }
+
+    /// A crash's summary, from the crash log the result bundle attached to the test.
+    public func crash(of test: TestID) async -> [String]? {
+        await attachments(of: test, onlyFailures: true, Self.crashSummary(in:))
+    }
+
+    /// A crash's summary, from the crash log among a test's exported attachments.
+    static func crashSummary(in folder: URL) -> [String]? {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         guard let log = names.sorted().first(where: { $0.hasSuffix(".ips") }),
               let text = try? String(contentsOf: folder.appending(path: log), encoding: .utf8)
         else { return nil }
-        return Self.crashSummary(log: text)
+        return crashSummary(log: text)
+    }
+
+    /// A failed test's images, moved to `<folder>/<run>/<suite>/<test>/` under the names their attachments suggest, so
+    /// Claude can Read them later in the session. Every attachment is exported: the snapshot libraries' images aren't
+    /// associated with the failure, so `--only-failures` would leave them out.
+    public func images(of test: TestID, keptIn folder: URL) async -> FailureImages? {
+        await attachments(of: test, onlyFailures: false) { export in
+            FailureImages.keep(of: test, from: export, in: folder.appending(path: URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent))
+        }
     }
 }
 

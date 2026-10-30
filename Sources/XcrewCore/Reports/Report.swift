@@ -59,6 +59,14 @@ public struct Report: Sendable, Equatable, Codable {
         (try? URL(fileURLWithPath: String(path)).resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
     }
 
+    /// Each failed test's images, on its failure for the pane: those the notes list, and the count and folder of the rest.
+    static func attaching(_ images: [TestID: FailureImages], to failures: [ToolOutput.Failure]) -> [ToolOutput.Failure] {
+        failures.map { failure in
+            guard failure.isTest, let attached = images[TestID(xcresultID: failure.title)] else { return failure }
+            return ToolOutput.Failure(title: failure.title, message: failure.message, where: failure.where, isTest: true, images: attached.shown, moreImages: attached.more)
+        }
+    }
+
     /// A result Claude Code saved to a file is read back from it.
     public static func make(kind: Kind, output: ToolOutput, home: String, runner: any CommandRunning, repeated: Bool = false, project: Project? = nil, machine: Machine? = nil) async -> Report {
         let saved = savedPath(output.text)
@@ -99,11 +107,12 @@ public struct Report: Sendable, Equatable, Codable {
         }()
         var final = read
         var edited = false
+        var images: [TestID: FailureImages] = [:]
         // A saved result stays saved unless it's compacted below: Claude Code saved it for its size, which the collapse alone may not cut enough.
         if let collapsed = read.collapsingWarnings() { (final, edited) = (collapsed, saved == nil) }
         if let text = final.mobileText {
             if let bundle, text.isTestRun {
-                if let annotated = await FailureNotes.adding(to: text, from: bundle) { (final, edited) = (ToolOutput(annotated, isError: output.isError), true) }
+                if let annotated = await FailureNotes.adding(to: text, from: bundle, keepingImagesIn: machine?.cacheFolder.appending(path: "images")) { (final, edited, images) = (ToolOutput(annotated.text, isError: output.isError), true, annotated.images) }
             } else if let cleaned = text.withoutExcerpts() {
                 (final, edited) = (ToolOutput(cleaned, isError: output.isError), true)
             }
@@ -148,7 +157,7 @@ public struct Report: Sendable, Equatable, Codable {
             detail: summary.detail,
             durationMs: final.reportedDuration,
             tests: tests,
-            failures: summary.ok ? [] : final.failures,
+            failures: summary.ok ? [] : Self.attaching(images, to: final.failures),
             result: compact ?? (edited ? final.text : nil),
             notes: notes,
             repeated: repeatedTests,

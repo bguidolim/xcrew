@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- In a config of your own that still enables MobileBuildMCP's `xcode-ide` group, Xcode MCP tools it forwards get Xcrew's checks too. In a generated project you're asked before `XcodeWrite`, and a build after a manifest edit is held back for the generate. Tools it proxies are timed and named in the status line as the Xcode MCP's own.
+
 ## 0.9.1 — 2026-10-30
 
 - The doctor no longer reports an error when the project's pinned Xcode isn't installed: it warns, naming both versions, and says when the build may fail (another major version, or a newer pin). It no longer reports an error for headless Xcode MCP on a Mac whose Xcodes all predate Xcode 27, and when Xcode 27 is installed but an older one is selected, it names the `xcode-select` command that turns headless Xcode MCP on. Its fix for a missing Xcode names `xcodes install` only when `xcodes` is installed, and Apple's download page otherwise.

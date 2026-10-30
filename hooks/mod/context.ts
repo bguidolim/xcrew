@@ -28,6 +28,11 @@ export function observe(tool: XcodeTool, text: string): void {
   if (scheme || destination) xcode = { scheme: scheme ?? xcode.scheme, destination: destination ?? xcode.destination }
 }
 
+/** Forgets what the Xcode MCP has active after a call that may have changed it but whose answer can't be read. */
+export function lost(tool: XcodeTool): void {
+  if (tool.server === 'xcode' && namesTarget(tool)) xcode = {}
+}
+
 /** `scheme on destination`, either part alone, or undefined when nothing is known. */
 export function describe(tool: XcodeTool, input: Record<string, unknown>): string | undefined {
   const target: Target =

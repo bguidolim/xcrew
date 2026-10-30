@@ -30,6 +30,9 @@ public struct CheckResult: Sendable, Equatable {
     public let status: CheckStatus
     /// One line: what was found, and for a failure or warning, the command that fixes it.
     public let message: String
+    /// Whether the line above the prompt leaves it out: a choice the person may have made on purpose shows only in the
+    /// full doctor. Not part of what a result is equal to.
+    public var isOffThePrompt = false
 
     public init(status: CheckStatus, message: String) {
         self.status = status
@@ -40,6 +43,17 @@ public struct CheckResult: Sendable, Equatable {
     public static func fail(_ message: String) -> Self { .init(status: .fail, message: message) }
     public static func warn(_ message: String) -> Self { .init(status: .warn, message: message) }
     public static func skip(_ message: String) -> Self { .init(status: .skip, message: message) }
+
+    /// This result, left off the line above the prompt.
+    public func offThePrompt() -> Self {
+        var result = self
+        result.isOffThePrompt = true
+        return result
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.status == rhs.status && lhs.message == rhs.message
+    }
 }
 
 /// What a check may look at.

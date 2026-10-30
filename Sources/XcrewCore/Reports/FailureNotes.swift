@@ -1,8 +1,8 @@
 import Foundation
 
 /// Adds what a result bundle knows to a failing MobileBuildMCP test run's text: each failure's
-/// location, a crash's exception and frames, the images a failed test attached, and each skipped
-/// test's reason, including skipped tests the text leaves out.
+/// location, a crash's exception and frames, the images a failed test attached, a pointer to `look`
+/// under a failed UI test, and each skipped test's reason, including skipped tests the text leaves out.
 public enum FailureNotes {
     /// At most this many tests are looked up: past it, the first ones are enough to start from.
     static let mostLookups = 10
@@ -74,6 +74,16 @@ public enum FailureNotes {
     /// What a failed test's image lines begin with, which the routing rules name.
     static let imageLabel = "image:"
 
+    /// What the line under a failed UI test sending Claude to `look` begins with.
+    static let lookLabel = "look:"
+
+    /// The line sending Claude to `look` on this run's bundle, so a later run doesn't stand in for it. A test in a nested
+    /// suite is named as the bundle names it, `()` and all, so its suite's `/` isn't read as a target's.
+    static func lookLine(_ test: TestID, bundle: String) -> String {
+        let named = test.shown.count(where: { $0 == "/" }) > 1 ? test.xcresultID : test.shown
+        return "      \(lookLabel) the steps before the failure and the screen at it, with the `look` tool or `xcrew look \(named) --bundle \(bundle)`"
+    }
+
     /// The text with its notes, and each failed test's images, for the failures pane.
     struct Added {
         let text: MobileText
@@ -120,8 +130,17 @@ public enum FailureNotes {
                         added.append("    \(location)")
                     }
                     if isCrashed { added += (await bundle.crash(of: test) ?? [noCrashLog]).map { "      \($0)" } }
-                    let attached = if let keepsImages { await bundle.images(of: test, keptIn: keepsImages) } else { FailureImages?.none }
+                    // One export for both: the test's images, and whether it kept a screen recording, as a UI test does.
+                    let (attached, recorded) = if let keepsImages {
+                        await bundle.attachments(of: test, onlyFailures: false) { export in
+                            (FailureImages.keep(of: test, from: export, in: bundle.runFolder(in: keepsImages)),
+                             FailureImages.attachments(of: test, in: export).contains { FailureScreen.isRecording($0["suggestedHumanReadableName"] as? String ?? "") })
+                        }
+                    } else {
+                        (FailureImages?.none, false)
+                    }
                     if let attached { added += attached.shown.map { "      \(imageLabel) \($0)" } + (attached.more.map { ["      \($0)"] } ?? []) }
+                    if recorded { added.append(lookLine(test, bundle: bundle.path)) }
                     return (test, added, attached)
                 }
             }

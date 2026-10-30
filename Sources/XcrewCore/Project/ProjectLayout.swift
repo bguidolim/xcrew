@@ -279,6 +279,11 @@ public struct ProjectLayout: Sendable {
         return (try? resolved.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath) ?? resolved.path
     }
 
+    /// `canonical` for a path, for code outside the module.
+    public static func canonicalPath(_ path: String) -> String {
+        canonical(URL(fileURLWithPath: path))
+    }
+
     /// Whether the walk goes into `entry`: a folder that is neither hidden, a dependency, nor a bundle. A bundle is a
     /// package to the file system, or one of Xcode's own folder types, all named `.xc…`; an asset catalog isn't a
     /// package (docs/findings.md).

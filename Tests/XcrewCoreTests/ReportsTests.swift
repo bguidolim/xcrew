@@ -111,8 +111,9 @@ enum Captured {
 
     @Test func aTestRunWhoseBuildFailedListsWhyItNeverRan() {
         let failures = Captured.output("mobileTestsBuildFailed").failures
-        #expect(failures.map(\.title) == ["LLVM Profile Error", "Failed to build workspace MacroProbe with scheme MacroProbe-Package."])
+        #expect(failures.map(\.title) == ["Failed to build workspace MacroProbe with scheme MacroProbe-Package."], "the coverage runtime failing to write its profile is not why the run failed")
         #expect(failures.last?.message.hasPrefix("Cannot test target “MacroProbeTests” on “iPhone 16”: Missing test product") == true)
+        #expect(Captured.output("mobileTestsBuildFailed").reportedErrors.map { String($0.message.prefix(18)) } == ["Failed to build wo"], "why reads these")
     }
 
     @Test func theXcodeMCPFailingTestsCarryTheirOwnMessageAndLocation() {
@@ -194,6 +195,17 @@ func failingRunText(passing: Int) -> String {
         #expect(!cleaned.contains("✗ |"))
         #expect(cleaned.contains("✗ cannot convert value of type 'String' to specified type 'Int'\n    /Users/dev/MacroProbe/Sources/MacroProbe/MacroProbe.swift:13"))
         #expect(Captured.output("mobileTestsFailed").mobileText?.withoutExcerpts() == nil)
+    }
+
+    /// The coverage runtime's write failure is left out of the shortened text and its count, and is never read as the
+    /// lines that go on from an error above it; another of its errors stays.
+    @Test func theCoverageRuntimesWriteFailureIsLeftOut() {
+        let shortened = Captured.output("mobileTestsBuildFailed").mobileText?.withoutExcerpts()?.text ?? ""
+        #expect(shortened.contains("Errors (1):") && !shortened.contains("LLVM Profile Error"))
+        let adjoining = "🧪 Test\n\nErrors (2):\n\n  ✗ Build failed: linker error\n  ✗ LLVM Profile Error: Failed to write file \"default.profraw\": Operation not permitted\n"
+        #expect(ToolOutput(text: adjoining, server: .mobileBuildMCP).reportedErrors.map(\.detail) == [[]])
+        let corrupt = "🧪 Test\n\nErrors (1):\n\n  ✗ LLVM Profile Error: Invalid profile data to merge\n"
+        #expect(ToolOutput(text: corrupt, server: .mobileBuildMCP).failures.map(\.title) == ["LLVM Profile Error"])
     }
 
     @Test func aLeftOutListIsPointedToWithoutACountOfItsOwn() throws {
@@ -495,6 +507,14 @@ func failingRunText(passing: Int) -> String {
     @Test func doctorProblemsSaysWhenThereAreNone() {
         #expect(Doctor.problemsText(lines: []) == ["No problems."])
         #expect(Doctor.problemsText(lines: ["warn  a/b  c"]) == ["warn  a/b  c"])
+    }
+
+    /// A warning kept off the prompt, such as the pin's, is named, so "No problems." doesn't contradict the full doctor.
+    @Test func doctorProblemsNamesWhatItKeepsOffThePrompt() {
+        let kept = "Kept off the prompt: xcode/pin. `xcrew doctor` shows it."
+        #expect(Doctor.problemsText(lines: [], kept: ["xcode/pin"]) == ["No problems.", kept])
+        #expect(Doctor.problemsText(lines: ["warn  a/b  c"], kept: ["xcode/pin"]) == ["warn  a/b  c", kept])
+        #expect(Doctor.problemsText(lines: [], kept: ["xcode/pin", "xcode/ci"]) == ["No problems.", "Kept off the prompt: xcode/pin and xcode/ci. `xcrew doctor` shows them."])
     }
 }
 

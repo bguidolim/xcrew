@@ -128,27 +128,46 @@ import Testing
         }
     }
 
+    /// A tool the mod registers: its name, read from `<constant> = {` in `file`, after checking its full name is the one
+    /// Claude calls it by, `mcp__<plugin>__<name>`.
+    func registeredTool(_ constant: String, in file: String) throws -> String {
+        let source = try text(file)
+        let plugin = try #require(try json(".claude-plugin/plugin.json")["name"] as? String)
+        let name = try #require(try Regex("export const \(constant) = \\{\n  name: '(\\w+)'").firstMatch(in: source)?.output[1].substring.map(String.init))
+        #expect(source.contains("export const \(constant)_NAME = 'mcp__\(plugin)__\(name)'"), "\(file)")
+        return name
+    }
+
     /// The routing rules send Claude to the affected tool before a full test run, by its name, with the guarantee it
     /// gives and when to run everything; the hook answering it matches the name it's registered under.
     @Test func theRoutingRulesAskTheAffectedToolAndNameItsGuarantee() throws {
         let routing = try text("context/routing.md")
-        let affected = try text("hooks/mod/affected.ts")
-        let plugin = try #require(try json(".claude-plugin/plugin.json")["name"] as? String)
-        let name = try #require(affected.firstMatch(of: /export const AFFECTED_TOOL = \{\n  name: '(\w+)'/)?.1)
-        #expect(affected.contains("export const AFFECTED_TOOL_NAME = 'mcp__\(plugin)__\(name)'"))
+        let name = try registeredTool("AFFECTED_TOOL", in: "hooks/mod/affected.ts")
         #expect(routing.contains("`\(name)`"))
         #expect(routing.contains("as the project declares them, nothing more"))
         #expect(routing.contains("run the whole suite"))
+    }
+
+    /// The routing rules tell Claude the evidence tool exists when it writes a pull request's body, by the name it's
+    /// registered under, and that its block, headed as the CLI heads it, is offered, never put in unasked; images only
+    /// with the person's agreement.
+    @Test func theRoutingRulesAskForEvidenceBeforeAPullRequest() throws {
+        let routing = try text("context/routing.md")
+        let name = try registeredTool("EVIDENCE_TOOL", in: "hooks/mod/evidence.ts")
+        let line = try #require(routing.split(separator: "\n").first { $0.contains("`\(name)` tool") })
+        #expect(line.contains("`\(EvidencePack.heading)`"))
+        #expect(try text("hooks/mod/evidence.ts").contains("`\(EvidencePack.heading)`"))
+        // An offer, never an insertion: the block goes in only when the person wants it, and a team's own template rules.
+        #expect(line.contains("Offer it to the person, and add it only if they want it"))
+        #expect(line.contains("attached only if the person agrees"))
+        for imperative in ["put its", "in the body as it is", "Before writing"] { #expect(!line.contains(imperative), "\(imperative)") }
     }
 
     /// The routing rules send Claude to the look tool when a UI test fails, by the name it's registered under, before it
     /// changes the test or the view; the hook answering it matches that name.
     @Test func theRoutingRulesLookAtAFailedUITestFirst() throws {
         let routing = try text("context/routing.md")
-        let look = try text("hooks/mod/look.ts")
-        let plugin = try #require(try json(".claude-plugin/plugin.json")["name"] as? String)
-        let name = try #require(look.firstMatch(of: /export const LOOK_TOOL = \{\n  name: '(\w+)'/)?.1)
-        #expect(look.contains("export const LOOK_TOOL_NAME = 'mcp__\(plugin)__\(name)'"))
+        let name = try registeredTool("LOOK_TOOL", in: "hooks/mod/look.ts")
         let line = try #require(routing.split(separator: "\n").first { $0.contains("UI test fails") })
         #expect(line.contains("`\(name)`"))
         #expect(line.contains("before changing"))

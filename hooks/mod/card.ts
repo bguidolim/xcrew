@@ -22,11 +22,25 @@ const RED_LINE_MAX = 360
 /** A run scope's stored history: its durations, and its test total when it's a test run. */
 export type ScopeHistory = { scope: string; runs: readonly number[]; tests?: number }
 
+/** The usual times of the scopes shown, longest first, as the card and the evidence pack word them: `test_sim: usually 1:20, 312 tests`. */
+export function durationLines(history: readonly ScopeHistory[]): string[] {
+  return shownDurations(timedScopes(history))
+}
+
+function shownDurations(timed: readonly (ScopeHistory & { usual: number })[]): string[] {
+  return timed.slice(0, DURATIONS_SHOWN).map(({ scope, usual, tests }) => `${scope}: usually ${stopwatch(usual)}${tests === undefined ? '' : `, ${tests} tests`}`)
+}
+
+/** The scopes with runs, longest usual time first, each with its usual time. */
+function timedScopes(history: readonly ScopeHistory[]): (ScopeHistory & { usual: number })[] {
+  return history.filter(entry => entry.runs.length > 0).map(entry => ({ ...entry, usual: average(entry.runs) })).sort((a, b) => b.usual - a.usual)
+}
+
 /** The card's text, or nothing when no run has left anything to say. */
 export function cardText(history: readonly ScopeHistory[], red: readonly LedgerEntry[], branch: string): string | undefined {
-  const timed = history.filter(entry => entry.runs.length > 0).map(entry => ({ ...entry, usual: average(entry.runs) })).sort((a, b) => b.usual - a.usual)
+  const timed = timedScopes(history)
   if (timed.length === 0 && red.length === 0) return undefined
-  const durations = timed.slice(0, DURATIONS_SHOWN).map(({ scope, usual, tests }) => `- ${scope}: usually ${stopwatch(usual)}${tests === undefined ? '' : `, ${tests} tests`}`)
+  const durations = shownDurations(timed).map(line => `- ${line}`)
   const slow = timed.find(entry => isWholeScope(entry.scope) && entry.tests !== undefined && entry.usual >= SLOW_FULL_RUN_MS)
   const selections = slow ? timed.filter(entry => entry.scope !== slow.scope && covers(slow.scope, entry.scope)) : []
   // The red tests come first: when the card is cut, what's still failing matters more than how long runs take.

@@ -68,6 +68,51 @@ test('a pass of another selection never ran the test: it stays red', async ($, o
   expect(text).not.toContain('Red, then green')
 })
 
+for (const selection of ['AppTests/GreetingTests', 'AppTests']) {
+  test(`a test red under its method is green once a run of ${selection} passes`, async ($, on) => {
+    project(on, [FAILED, PASSED])
+    await run($, 'AppTests/GreetingTests/testHello')
+    await run($, selection)
+    expect(await ledgerText($)).toContain(`Red, then green, on feat/ledger (1 test):\n- ${TEST}: red`)
+  })
+}
+
+test('a pass of a sibling class or another target never ran the test: it stays red', async ($, on) => {
+  project(on, [FAILED, PASSED, PASSED])
+  await run($, 'AppTests/GreetingTests/testHello')
+  await run($, 'AppTests/FarewellTests')
+  await run($, 'OtherTests/GreetingTests')
+  expect(await ledgerText($)).toContain(`Still red (1):\n- ${TEST}: red`)
+})
+
+test('a test red under its target is green once a run of its class in that target passes', async ($, on) => {
+  project(on, [FAILED, PASSED])
+  await run($, 'AppTests')
+  await run($, 'AppTests/GreetingTests')
+  expect(await ledgerText($)).toContain(`Red, then green, on feat/ledger (1 test):\n- ${TEST}: red`)
+})
+
+test('a run of the target a test may not be in leaves it red, when its failing run selected two targets', async ($, on) => {
+  project(on, [FAILED, PASSED])
+  await callTool($, 'mcp__MobileBuildMCP__test_sim', { extraArgs: ['-only-testing:AppTests', '-only-testing:OtherTests'] })
+  await run($, 'OtherTests')
+  expect(await ledgerText($)).toContain(`Still red (1):\n- ${TEST}: red`)
+})
+
+test('a Swift Testing selection, its method spelled with (), reaches the test either way', async ($, on) => {
+  project(on, [FAILED, PASSED, FAILED, PASSED])
+  await run($, 'AppTests/GreetingTests/testHello()')
+  await run($, 'AppTests/GreetingTests')
+  expect(await ledgerText($)).toContain(`Red, then green, on feat/ledger (1 test):\n- ${TEST}: red`)
+})
+
+test('a test red in a whole-suite run is green once a run of its method passes', async ($, on) => {
+  project(on, [FAILED, PASSED])
+  await run($)
+  await run($, 'AppTests/GreetingTests/testHello')
+  expect(await ledgerText($)).toContain(`Red, then green, on feat/ledger (1 test):\n- ${TEST}: red`)
+})
+
 test('a pass of the whole suite on the same tool and scheme turns a selection\'s red green', async ($, on) => {
   project(on, [FAILED, PASSED])
   await run($, 'AppTests')
@@ -266,6 +311,24 @@ test('a mixed result is flaky even when the failures leave the test out', async 
   await run($, 'AppTests/GreetingTests/testHello')
   await repeat($)
   expect(await ledgerText($)).toContain(`Still red (1):\n- ${TEST} (flaky: failed 2 of 5 runs)`)
+})
+
+test('a test that failed every repeated run, with no failure of its own listed, reads as the verdict says', async ($, on) => {
+  project(on, [{ ok: false, repeated: [{ test: TEST, failed: 5, passed: 0, runs: 5, verdict: 'real' }] }])
+  await repeat($)
+  const text = await ledgerText($)
+  expect(text).toContain(`Still red (1):\n- ${TEST}: red`)
+  expect(text).toMatch(/: failed every run, a real failure$/m)
+  expect(text).not.toContain('failed some of its repeated runs')
+})
+
+test('a flaky test\'s counts are said once, in its label, as each run updates them', async ($, on) => {
+  project(on, [{ ok: false, repeated: [{ test: TEST, failed: 2, passed: 3, runs: 5, verdict: 'flaky' }] }, { ok: false, repeated: [{ test: TEST, failed: 3, passed: 2, runs: 5, verdict: 'flaky' }] }])
+  await repeat($)
+  await repeat($)
+  const text = await ledgerText($)
+  expect(text).toContain(`- ${TEST} (flaky: failed 3 of 5 runs): red`)
+  expect(text).not.toContain('2 of 5')
 })
 
 test('runs that gave no verdict clear nothing', async ($, on) => {

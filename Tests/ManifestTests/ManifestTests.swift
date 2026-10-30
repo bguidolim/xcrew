@@ -274,6 +274,15 @@ import Testing
         #expect(names == Set([ResultBundle.Verdict.flaky, .real, .passed, .none].map(\.rawValue)))
     }
 
+    /// The ledger words a real failure's red as the CLI words its verdict, so Claude reads one wording for one fact.
+    @Test func theLedgerWordsAVerdictAsTheCLIDoes() throws {
+        let note = try #require(ResultBundle.repetitionsNote([
+            .init(test: "S/real", failed: 5, passed: 0, runs: 5, verdict: .real),
+        ]))
+        let ledger = try text("hooks/mod/ledger.ts")
+        #expect(note.contains("failed every run, a real failure") && ledger.contains("'failed every run, a real failure'"))
+    }
+
     /// Each tool the mod defines is registered at session start and answered by a hook matching its full name.
     @Test(arguments: [("hooks/mod/ledger.ts", "LEDGER_TOOL"), ("hooks/mod/affected.ts", "AFFECTED_TOOL"), ("hooks/mod/look.ts", "LOOK_TOOL")])
     func eachToolOfTheModsIsRegisteredAndAnswered(file: String, tool: String) throws {

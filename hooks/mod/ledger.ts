@@ -1,5 +1,6 @@
 import type { Failure, Head, Repetition } from './cli'
 import { dayAndTime } from './format'
+import { scopeParts } from './context'
 import { isStale } from './timing'
 
 /**
@@ -47,19 +48,51 @@ export function ledgerOf(stored: unknown): Ledger | undefined {
  * same tool and scheme. A pass of another scheme or selection never ran them.
  */
 export function covers(passed: string, failed: string): boolean {
-  return passed === failed || (isWholeScope(passed) && failed.startsWith(`${passed} › `))
+  return passed === failed || (isWholeScope(passed) && scopeParts(failed).base === passed)
+}
+
+/**
+ * Whether a run of `passed` scope ran `test`, red in `failing`: the scopes `covers` matches, or the same tool and scheme
+ * with a selection that reaches the test. A selection is `TestTarget[/TestClass[/TestMethod]]` (`man xcodebuild`), a
+ * Swift Testing method with or without its `()`, and the ledger names a test `Suite/test`, without its target: the
+ * target comes from the selections of the run it failed in. A selection of a class or method reaches the test under a
+ * target that run could have run it in, or under any target when that run selected none; a selection of a whole target
+ * only when that run's selections leave the test exactly one target.
+ */
+export function reaches(passed: string, test: string, failing: string): boolean {
+  if (covers(passed, failing)) return true
+  const pass = scopeParts(passed), fail = scopeParts(failing)
+  if (pass.base !== fail.base) return false
+  // The targets the failing run could have run the test in; none known when it selected none.
+  const targets = new Set(fail.selections.map(path).filter(([, ...rest]) => within(test, rest)).map(([target = '']) => target))
+  return pass.selections.map(path).some(([target = '', ...rest]) =>
+    rest.length > 0
+      ? within(test, rest) && (fail.selections.length === 0 || targets.has(target))
+      : targets.size === 1 && targets.has(target),
+  )
+}
+
+/** A selection's components, a Swift Testing method's `()` taken off. */
+function path(selection: string): string[] {
+  return (selection.endsWith('()') ? selection.slice(0, -2) : selection).split('/')
+}
+
+/** Whether `test` (`Suite/test`) is the class or method `components` name, or in it; no components name everything. */
+function within(test: string, components: string[]): boolean {
+  const named = components.join('/')
+  return named === '' || test === named || test.startsWith(`${named}/`)
 }
 
 /** Whether a run scope is a tool and scheme's whole suite, not a selection of its tests. */
 export function isWholeScope(scope: string): boolean {
-  return !scope.includes(' › ')
+  return scopeParts(scope).selections.length === 0
 }
 
 /**
  * The ledger after a test run.
  * - A failing test enters red, or turns red again after a green, keeping its first red; either way it now fails in this
  *   run's scope.
- * - A run that ran every test of its scope turns green each red test it covers and didn't fail, a failing run
+ * - A run that ran every test of its scope turns green each red test it reaches and didn't fail, a failing run
  *   included: its other tests passed. A run that didn't get as far as tests (a build failure) turns nothing green.
  * - An entry no run has written for as long as the history is kept is dropped.
  */
@@ -81,16 +114,24 @@ export function afterTestRun(ledger: Ledger | undefined, run: TestRun): Ledger {
       return { test: entry.test, red: entry.red, failing: run.scope, last: run.at, ...(flaky ? { flaky } : {}) }
     }
     const cleared = !entry.flaky || repeated.get(entry.test)?.verdict === 'passed'
-    const passes = !entry.green && cleared && run.ranAll && testsRan && covers(run.scope, entry.failing)
+    const passes = !entry.green && cleared && run.ranAll && testsRan && reaches(run.scope, entry.test, entry.failing)
     return passes ? { ...entry, green: { scope: run.scope, at: run.at }, last: run.at } : entry
   })
   for (const test of failing) {
     if (entries.some(entry => entry.test === test)) continue
     const flaky = flakyAfter(test)
-    const message = failed.get(test)?.message ?? 'failed some of its repeated runs'
+    const message = failed.get(test)?.message ?? verdictMessage(repeated.get(test))
     entries.push({ test, red: { scope: run.scope, at: run.at, message: firstLine(message), bundle: run.bundle }, failing: run.scope, last: run.at, ...(flaky ? { flaky } : {}) })
   }
   return { entries, updated: run.at }
+}
+
+/**
+ * A repeated test's red, when no failure of its own was listed: a real one in the CLI's words for its verdict
+ * (`ResultBundle.repetitionsNote`); a flaky one's counts are its label's, which each run updates.
+ */
+function verdictMessage(verdict: Repetition | undefined): string {
+  return verdict?.verdict === 'real' ? 'failed every run, a real failure' : 'failed some of its repeated runs'
 }
 
 /** The stored ledgers no run has written for as long as the history is kept. */

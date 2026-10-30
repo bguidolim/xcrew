@@ -52,7 +52,7 @@ struct TestbedLookTests {
             try FileManager.default.copyItem(at: captures.appending(path: capture), to: export)
             let test = TestID(suite: "UITests", name: name)
             let run = try #require(pick(FailedRun.runs(activities: try Self.capture(capture, "activities-\(name).json")) ?? []))
-            let screen = await FailureScreen.keep(of: test, run: run, attachments: FailureImages.attachments(of: test, in: export), from: export, in: root.appending(path: "images"))
+            let screen = await FailureScreen.keep(of: test, run: run, files: Look.files(in: export), in: root.appending(path: "images"))
             // Read before the folder goes.
             return (screen, root.appending(path: "images"), screen.flatMap { FileManager.default.contents(atPath: $0.path) })
         }
@@ -72,23 +72,6 @@ struct TestbedLookTests {
     @Test func aRunThatPassedIsLeftOut() throws {
         let runs = FailedRun.runs(activities: try Self.capture("xcodebuild", "activities-testPlanA.json")) ?? []
         #expect(runs.map(\.configuration) == ["Plan B"])
-    }
-
-    /// `look` exports only the recordings, by a glob over their file names: every recording in both captures is named
-    /// `….mp4`, as exported and as suggested, so the glob matches it whichever name it reads, and nothing else is.
-    @Test(arguments: ["xcodebuild", "mobilebuildmcp"])
-    func theRecordingsFilterNamesEveryRecordingAndNothingElse(capture: String) throws {
-        let folder = Self.captures.appending(path: capture)
-        let manifest = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appending(path: "manifest.json"))) as? [[String: Any]])
-        let attachments = manifest.flatMap { $0["attachments"] as? [[String: Any]] ?? [] }
-        #expect(FailureScreen.recordings == "*.mp4")
-        #expect(attachments.contains { FailureScreen.isMovie(folder.appending(path: $0["exportedFileName"] as? String ?? "")) })
-        for attachment in attachments {
-            let isRecording = FailureScreen.isMovie(folder.appending(path: attachment["exportedFileName"] as? String ?? ""))
-            for key in ["exportedFileName", "suggestedHumanReadableName"] {
-                #expect(((attachment[key] as? String) ?? "").hasSuffix(".mp4") == isRecording, "\(attachment)")
-            }
-        }
     }
 
     /// The screen at a failure is the last frame of that run's own recording, which stops at the failure: Plan B's,
@@ -114,9 +97,9 @@ struct TestbedLookTests {
             try FileManager.default.copyItem(at: Self.captures.appending(path: "xcodebuild"), to: export)
             let test = TestID(suite: "UITests", name: "testMissingElement")
             let run = try #require(FailedRun.runs(activities: try Self.capture("xcodebuild", "activities-testMissingElement.json"))?.last)
-            let attachments = FailureImages.attachments(of: test, in: export)
-            let first = try #require(await FailureScreen.keep(of: test, run: run, number: 1, attachments: attachments, from: export, in: root.appending(path: "images")))
-            let second = try #require(await FailureScreen.keep(of: test, run: run, number: 2, attachments: attachments, from: export, in: root.appending(path: "images")))
+            let files = Look.files(in: export)
+            let first = try #require(await FailureScreen.keep(of: test, run: run, number: 1, files: files, in: root.appending(path: "images")))
+            let second = try #require(await FailureScreen.keep(of: test, run: run, number: 2, files: files, in: root.appending(path: "images")))
             #expect(first.path != second.path)
             #expect(FileManager.default.fileExists(atPath: first.path) && FileManager.default.fileExists(atPath: second.path))
         }
@@ -136,7 +119,7 @@ struct TestbedLookTests {
     /// A run whose recording wasn't kept has no screen.
     @Test func aRunWithNoRecordingHasNoScreen() async throws {
         let (screen, _, _) = try await Self.screen("xcodebuild", "testMissingElement") { runs in
-            runs.first.map { FailedRun(device: $0.device, configuration: "Plan C", steps: [], failure: $0.failure, failedAt: $0.failedAt, deviceID: $0.deviceID) }
+            runs.first.map { FailedRun(device: $0.device, configuration: $0.configuration, steps: [], failure: $0.failure, failedAt: $0.failedAt, deviceID: $0.deviceID, attachments: $0.attachments.filter { !$0.name.hasSuffix(".mp4") }) }
         }
         #expect(screen == nil)
     }
@@ -155,9 +138,9 @@ struct TestbedLookTests {
             #"    Find the "title" StaticText"#,
             #"    ✗ XCTAssertEqual failed: ("Done") is not equal to ("Welcome")"#,
         ], "\(text)")
-        try #require(lines.count > 8, "\(text)")
+        try #require(lines.count > 9, "\(text)")
         #expect(lines[7].hasPrefix("    screen: \(images.appending(path: "UITests/UITests/testFailsAfterTaps").path)/"), "\(text)")
-        #expect(lines[8] == "  Plan B · iPhone 18 Pro Max, iOS 27.2", "\(text)")
+        #expect(lines[9] == "  Plan B · iPhone 18 Pro Max, iOS 27.2", "\(text)")
     }
 
     /// Without a test named, it looks at the failed tests that kept a recording, in the run's order; a passing test and
@@ -174,5 +157,75 @@ struct TestbedLookTests {
         let planA = try #require(text.components(separatedBy: "xcrew look: ").first { $0.hasPrefix("UITests/testPlanA,") })
         #expect(!planA.contains("Plan A ·"), "\(planA)")
         #expect(planA.contains("Plan B ·"), "\(planA)")
+    }
+
+    /// Under the screen, the elements on it when the query failed, from the hierarchy XCTest attached, with the query's
+    /// element named missing when it isn't among them.
+    @Test func aFailedQueryShowsTheElementsOnScreen() async throws {
+        let (text, _) = try await Self.report(TestID(suite: "UITests", name: "testMissingElement"))
+        let lines = text.components(separatedBy: "\n")
+        let screen = try #require(lines.firstIndex { $0.hasPrefix("    screen: ") }, "\(text)")
+        #expect(Array(lines[(screen + 1)...].prefix(5)) == [
+            #"    on screen, nothing the query's "checkout" Button matches:"#,
+            #"      Application "App""#,
+            #"        StaticText "Welcome", identifier "title""#,
+            #"        StaticText "Plan A", identifier "plan""#,
+            #"        Button "Continue", identifier "continue""#,
+        ], "\(text)")
+    }
+
+    /// An assertion on an element that was found leaves no hierarchy: XCTest attaches one only when a query fails.
+    @Test func anAssertionLeavesNoHierarchy() async throws {
+        let (text, _) = try await Self.report(TestID(suite: "UITests", name: "testFailsAfterTaps"))
+        let lines = text.components(separatedBy: "\n")
+        let screen = try #require(lines.firstIndex { $0.hasPrefix("    screen: ") }, "\(text)")
+        #expect(lines.dropFirst(screen + 1).first == "    on screen: no hierarchy kept; XCTest attaches one when a query fails", "\(text)")
+    }
+
+    /// The hierarchy is told from the query's debug descriptions beside it by its shape, and kept whole beside the screen.
+    @Test func theHierarchyIsFoundByItsShapeAndKeptWhole() async throws {
+        try await Self.inFolder { root in
+            let export = root.appending(path: "export")
+            try FileManager.default.copyItem(at: Self.captures.appending(path: "xcodebuild"), to: export)
+            let test = TestID(suite: "UITests", name: "testPlanA")
+            let run = try #require(FailedRun.runs(activities: try Self.capture("xcodebuild", "activities-testPlanA.json"))?.first)
+            let kept = try #require(FailureHierarchy.keep(of: test, run: run, number: nil, files: Look.files(in: export), in: root.appending(path: "images")))
+            guard case let .read(hierarchy) = kept.content else { Issue.record("not read: \(kept.content)"); return }
+            #expect(hierarchy.elements.contains { $0.label == "Plan B" })
+            #expect(try String(contentsOfFile: kept.path, encoding: .utf8).hasPrefix("Application, 0x"))
+            #expect(kept.path.hasPrefix(root.appending(path: "images/UITests/testPlanA").path))
+        }
+    }
+
+    /// A run's hierarchy is one of its own attachments: a run that attached none shows none, though another run of the
+    /// test on the same device and configuration did, as with `-test-iterations`; and one stamped just after the failing
+    /// step began is still the run's.
+    @Test func aRunShowsOnlyItsOwnHierarchy() async throws {
+        try await Self.inFolder { root in
+            let export = root.appending(path: "export")
+            try FileManager.default.copyItem(at: Self.captures.appending(path: "xcodebuild"), to: export)
+            let test = TestID(suite: "UITests", name: "testMissingElement")
+            let run = try #require(FailedRun.runs(activities: try Self.capture("xcodebuild", "activities-testMissingElement.json"))?.first)
+            let files = Look.files(in: export)
+            let without = FailedRun(device: run.device, configuration: run.configuration, steps: run.steps, failure: run.failure, failedAt: run.failedAt, deviceID: run.deviceID, attachments: run.attachments.filter { !$0.name.hasPrefix("App UI hierarchy") })
+            #expect(FailureHierarchy.keep(of: test, run: without, number: nil, files: files, in: root.appending(path: "images")) == nil)
+            let earlier = FailedRun(device: run.device, configuration: run.configuration, steps: run.steps, failure: run.failure, failedAt: run.failedAt - 0.001, deviceID: run.deviceID, attachments: run.attachments)
+            #expect(FailureHierarchy.keep(of: test, run: earlier, number: nil, files: files, in: root.appending(path: "images")) != nil)
+        }
+    }
+
+    /// When XCTest's hierarchy changes shape, the attachment its name says is the hierarchy is shown as XCTest wrote it.
+    @Test func aHierarchyOfAnotherShapeIsShownAsWritten() async throws {
+        try await Self.inFolder { root in
+            let export = root.appending(path: "export")
+            try FileManager.default.copyItem(at: Self.captures.appending(path: "xcodebuild"), to: export)
+            let test = TestID(suite: "UITests", name: "testMissingElement")
+            let run = try #require(FailedRun.runs(activities: try Self.capture("xcodebuild", "activities-testMissingElement.json"))?.first)
+            let files = Look.files(in: export)
+            let named = try #require(run.attachments.first { $0.name.hasPrefix("App UI hierarchy") })
+            try "a shape XCTest may use one day\n  with a second line".write(to: try #require(files[named.id]), atomically: true, encoding: .utf8)
+            let kept = try #require(FailureHierarchy.keep(of: test, run: run, number: nil, files: files, in: root.appending(path: "images")))
+            #expect(kept.content == .asWritten("a shape XCTest may use one day\n  with a second line"))
+        }
     }
 }

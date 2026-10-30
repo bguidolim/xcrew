@@ -65,11 +65,13 @@ public struct Report: Sendable, Equatable, Codable {
         (try? URL(fileURLWithPath: String(path)).resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
     }
 
-    /// Each failed test's images, on its failure for the pane: those the notes list, and the count and folder of the rest.
-    static func attaching(_ images: [TestID: FailureImages], to failures: [ToolOutput.Failure]) -> [ToolOutput.Failure] {
+    /// Each failed test's images, on its failure for the pane: those the notes list, and the count and folder of the rest;
+    /// and its target, from the result bundle, for the ledger.
+    static func attaching(_ images: [TestID: FailureImages], targets: [TestID: String] = [:], to failures: [ToolOutput.Failure]) -> [ToolOutput.Failure] {
         failures.map { failure in
-            guard failure.isTest, let attached = images[TestID(xcresultID: failure.title)] else { return failure }
-            return ToolOutput.Failure(title: failure.title, message: failure.message, where: failure.where, isTest: true, images: attached.shown, moreImages: attached.more)
+            guard failure.isTest else { return failure }
+            let test = TestID(xcresultID: failure.title)
+            return ToolOutput.Failure(title: failure.title, message: failure.message, where: failure.where, isTest: true, images: images[test]?.shown, moreImages: images[test]?.more, target: targets[test])
         }
     }
 
@@ -111,9 +113,11 @@ public struct Report: Sendable, Equatable, Codable {
         var images: [TestID: FailureImages] = [:]
         // A saved result stays saved unless it's compacted below: Claude Code saved it for its size, which the collapse alone may not cut enough.
         if let collapsed = read.collapsingWarnings() { (final, edited) = (collapsed, saved == nil) }
+        // A repeated run's tests, each with how many of its runs failed: the notes count them, and the verdicts read them.
+        let repetitions = if repeated, let bundle { ResultBundle.repetitions(listing: await bundle.tests()) } else { [ResultBundle.Repeated]() }
         if let text = final.mobileText {
             if let bundle, text.isTestRun {
-                if let annotated = await FailureNotes.adding(to: text, from: bundle, keepingImagesIn: machine?.cacheFolder.appending(path: "images")) { (final, edited, images) = (ToolOutput(annotated.text, isError: output.isError), true, annotated.images) }
+                if let annotated = await FailureNotes.adding(to: text, from: bundle, keepingImagesIn: machine?.cacheFolder.appending(path: "images"), repetitions: repetitions) { (final, edited, images) = (ToolOutput(annotated.text, isError: output.isError), true, annotated.images) }
             } else if let cleaned = text.withoutExcerpts() {
                 (final, edited) = (ToolOutput(cleaned, isError: output.isError), true)
             }
@@ -131,9 +135,8 @@ public struct Report: Sendable, Equatable, Codable {
         // A run repeated with `-test-iterations` says, per test, whether it's flaky or failing for real.
         var repeatedTests: [ResultBundle.Repeated]?
         if repeated {
-            let found = if let bundle { ResultBundle.repetitions(listing: await bundle.tests()) } else { [ResultBundle.Repeated]() }
-            notes.append(ResultBundle.repetitionsNote(found) ?? ResultBundle.noRepetitionsNote)
-            repeatedTests = found
+            notes.append(ResultBundle.repetitionsNote(repetitions) ?? ResultBundle.noRepetitionsNote)
+            repeatedTests = repetitions
         }
 
         // The warnings in lines this branch changed, named: those are Claude's to fix. Nothing is said about the rest, or
@@ -146,13 +149,15 @@ public struct Report: Sendable, Equatable, Codable {
         if let why = await why { notes.insert(why, at: 0) }
         if let pinNote = await pinNote { notes.append(pinNote) }
 
+        // A failing test's target, from the run's test list, which skips and expected failures read too.
+        let targets = if let bundle, !summary.ok, final.failures.contains(where: \.isTest) { ResultBundle.targets(listing: await bundle.tests()) } else { [TestID: String]() }
         let compact = saved.flatMap { final.compactTestResult(savedPath: $0) } ?? (saved == nil ? final.compactTestText : nil)
         return Report(
             ok: summary.ok,
             detail: summary.detail,
             durationMs: final.reportedDuration,
             tests: tests,
-            failures: summary.ok ? [] : Self.attaching(images, to: final.failures),
+            failures: summary.ok ? [] : Self.attaching(images, targets: targets, to: final.failures),
             result: compact ?? (edited ? final.text : nil),
             notes: notes,
             repeated: repeatedTests,

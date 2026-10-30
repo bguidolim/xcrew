@@ -165,6 +165,11 @@ func failingRunText(passing: Int) -> String {
         ].joined(separator: "\n"))
     }
 
+    /// MobileBuildMCP's MCP results open with a blank line; the run is shortened all the same.
+    @Test func aRunOpeningWithABlankLineIsShortenedToo() {
+        #expect(ToolOutput(text: "\n" + failingRunText(passing: 40), server: .mobileBuildMCP).compactTestText?.contains("  (40 passing tests left out; failing tests are listed in full above)") == true)
+    }
+
     @Test func aShortListIsLeftAsTheServerWroteIt() {
         #expect(ToolOutput(text: failingRunText(passing: 5), server: .mobileBuildMCP).compactTestText == nil)
         #expect(Captured.output("mobileBuildFailed").compactTestText == nil)
@@ -281,6 +286,46 @@ func failingRunText(passing: Int) -> String {
         #expect(added.contains("  ⏭️ FormatterTests/test_skipped() (0.000s)\n      skipped: waiting on the new API"))
     }
 
+    /// The Swift runtime's own words for a trap, as the run prints them under Errors, the xctest log's prefix or not:
+    /// a precondition or an assertion as much as a fatal error.
+    @Test func aCrashsRuntimeErrorIsReadFromTheRunsErrorsInEachOfSwiftsWords() async {
+        for said in ["Fatal error: Index out of range", "Precondition failed: the queue is empty", "Assertion failed: no session"] {
+            let text = Captured.text("mobileTestsCrashedAndSkipped").replacingOccurrences(of: "🧪 Test\n", with: "🧪 Test\n\nErrors (2):\n\n  ✗ App/Queue.swift:12: \(said)\n\n  ✗ 2026-10-30 18:11:11.785287+0100 xctest[29418:1065289] App/Queue.swift:12: \(said)\n")
+            let added = await FailureNotes.addingText(to: text, from: Self.crashedAndSkipped())
+            #expect(added.contains("      crashed: EXC_BREAKPOINT (SIGTRAP)\n      \(said)\n"), "\(added)")
+            #expect(added.components(separatedBy: "      \(said)").count == 2, "\(added)")
+        }
+    }
+
+    /// A repeated test's failures at another place are its own, not another run's: they stay.
+    @Test func aRepeatedTestsFailureElsewhereStays() async {
+        let text = "\n🧪 Test\n\nTest Failures (3):\n\n  ✗ ProbeTests / testTwice: first assertion\n    /work/App/Tests/ProbeTests.swift:10\n\n  ✗ ProbeTests / testTwice: second assertion\n    /work/App/Tests/ProbeTests.swift:14\n\n  ✗ ProbeTests / testTwice: first assertion\n    /work/App/Tests/ProbeTests.swift:10\n\n❌ 1 test failed, 0 passed, 0 skipped (⏱️ 1.0s)"
+        let listing = #"{"testNodes":[{"nodeType":"Test Case","nodeIdentifier":"ProbeTests/testTwice()","result":"Failed","children":[{"nodeType":"Repetition","result":"Failed"},{"nodeType":"Repetition","result":"Failed"}]}]}"#
+        let repeated = ResultBundle.repetitions(listing: listing)
+        let added = await FailureNotes.adding(to: MobileText(text), from: ResultBundle(path: "/b.xcresult", runner: FakeRunner()), repetitions: repeated)?.text.text ?? text
+        #expect(added.contains("second assertion\n    /work/App/Tests/ProbeTests.swift:14"), "\(added)")
+        #expect(added.components(separatedBy: "first assertion").count == 2, "\(added)")
+        #expect(added.contains("Test Failures (2):"), "\(added)")
+    }
+
+    /// The test's line is its own frame, found by its name, though a dependency built from source trapped first.
+    @Test func aCrashsLineIsTheTestsOwnFrame() {
+        let log = #"{"app_name":"xctest"}\#n{"faultingThread":0,"exception":{"type":"EXC_BREAKPOINT","signal":"SIGTRAP"},"usedImages":[{"name":"libswiftCore.dylib"},{"name":"Queue"},{"name":"AppTests"}],"threads":[{"frames":[{"imageIndex":0,"symbol":"_assertionFailure(_:_:file:line:flags:)"},{"imageIndex":1,"symbol":"Queue.pop()","sourceFile":"/work/Packages/Queue/Sources/Queue.swift","sourceLine":40},{"imageIndex":2,"symbol":"QueueTests.testPop()","sourceFile":"/work/App/Tests/QueueTests.swift","sourceLine":12}]}]}"#
+        #expect(ResultBundle.crashReport(log: log, test: TestID(suite: "QueueTests", name: "testPop"))?.location == "QueueTests.swift:12")
+        #expect(ResultBundle.crashReport(log: log, test: TestID(suite: "QueueTests", name: "testPop"))?.summary.last == "AppTests  QueueTests.testPop()")
+    }
+
+    /// A crash log without an exception still heads its frames with the runtime's error.
+    @Test func aRuntimeErrorHeadsTheFramesWithoutAnException() async {
+        let text = Captured.text("mobileTestsCrashedAndSkipped").replacingOccurrences(of: "🧪 Test\n", with: "🧪 Test\n\nErrors (1):\n\n  ✗ App/Queue.swift:12: Fatal error: empty\n")
+        let export = FileManager.default.temporaryDirectory.appending(path: "xcrew-tests-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: export, withIntermediateDirectories: true)
+        try? Captured.text("crashLog").replacingOccurrences(of: #""exception":{"type":"EXC_BREAKPOINT","signal":"SIGTRAP"},"#, with: "").write(to: export.appending(path: "crash.ips"), atomically: true, encoding: .utf8)
+        let bundle = ResultBundle(path: Self.crashBundle, runner: FakeRunner(), exportFolder: { export })
+        let added = await FailureNotes.addingText(to: text, from: bundle)
+        #expect(added.contains("Crash: xctest at implicit closure #1 in FormatterTests.test_crash()\n      Fatal error: empty\n      libswiftCore.dylib"), "\(added)")
+    }
+
     @Test func aFailureTheServerLocatedIsNotLookedUp() async {
         // Every xcresulttool call would answer "not found"; the text comes back as it was.
         let text = Captured.text("mobileTestsFailed")
@@ -352,6 +397,27 @@ func failingRunText(passing: Int) -> String {
         let report = await Self.report("mobileTestsFailed", isError: true)
         #expect(!report.ok)
         #expect(report.failures.map(\.title) == ["PlainTests/testConcatenation"])
+    }
+
+    /// A failing test's target, from the test bundle the result bundle files it under: the ledger reads it to tell which
+    /// later selection ran the test.
+    @Test func aFailingTestCarriesItsTargetFromTheResultBundle() async {
+        let bundle = "\(Captured.workspace)/result-bundles/test_sim.xcresult"
+        let listing = #"{"testNodes":[{"nodeType":"Test Plan","name":"App","children":[{"nodeType":"Unit test bundle","name":"PlainKitTests","result":"Failed","children":[{"nodeType":"Test Suite","name":"PlainTests","children":[{"nodeType":"Test Case","name":"testConcatenation()","nodeIdentifier":"PlainTests/testConcatenation()","result":"Failed"}]}]}]}]}"#
+        let runner = FakeRunner(responses: ["xcrun xcresulttool get test-results tests --path \(bundle) --compact": .init(status: 0, stdout: listing)])
+        let report = await Self.report("mobileTestsFailed", isError: true, runner: runner)
+        #expect(report.failures.map(\.target) == ["PlainKitTests"])
+    }
+
+    /// A test of the same name in two test bundles has the target it failed in; with both failing, none, rather than a
+    /// guess the ledger would trust.
+    @Test func aTestNamedTheSameInTwoBundlesHasTheTargetItFailedIn() {
+        let bundle = { (name: String, result: String) in #"{"nodeType":"Unit test bundle","name":"\#(name)","children":[{"nodeType":"Test Suite","name":"ViewModelTests","children":[{"nodeType":"Test Case","nodeIdentifier":"ViewModelTests/testLoad()","result":"\#(result)"}]}]}"# }
+        let listing = { (bundles: [String]) in #"{"testNodes":[{"nodeType":"Test Plan","children":[\#(bundles.joined(separator: ","))]}]}"# }
+        let test = TestID(suite: "ViewModelTests", name: "testLoad")
+        #expect(ResultBundle.targets(listing: listing([bundle("FeatureATests", "Failed"), bundle("FeatureBTests", "Passed")]))[test] == "FeatureATests")
+        #expect(ResultBundle.targets(listing: listing([bundle("FeatureATests", "Passed"), bundle("FeatureBTests", "Failed")]))[test] == "FeatureBTests")
+        #expect(ResultBundle.targets(listing: listing([bundle("FeatureATests", "Failed"), bundle("FeatureBTests", "Failed")]))[test] == nil)
     }
 
     @Test func aRunThatRanNoTestsTellsClaudeWhy() async {

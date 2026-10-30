@@ -71,17 +71,40 @@ public struct ResultBundle: Sendable {
             guard node["nodeType"] as? String == "Test Case", node["result"] as? String == "Skipped",
                   let test = (node["nodeIdentifier"] as? String).map(TestID.init(xcresultID:))
             else { return nil }
-            let message = (node["children"] as? [[String: Any]])?.first { $0["nodeType"] as? String == "Skip Message" }?["name"] as? String
+            // Directly below the test case, or below each of its repetitions in a repeated run.
+            let message = nodes(node["children"]).first { $0["nodeType"] as? String == "Skip Message" }?["name"] as? String
             let reason = message.map { $0.hasPrefix("Test skipped - ") ? String($0.dropFirst("Test skipped - ".count)) : $0 }
             return (test, Skip(reason: reason, seconds: node["durationInSeconds"] as? Double ?? 0))
         }
     }
 
-    /// Frames of the crashed thread shown: enough to reach the test's own code from the crash.
+    /// Each failed test's target in `xcresulttool get test-results tests` output: the test bundle it's filed under, a unit
+    /// or UI test bundle named as its target is. A test of the same name failing in two bundles has none: the ledger would
+    /// trust a guess.
+    public static func targets(listing: String) -> [TestID: String] {
+        var found: [TestID: Set<String>] = [:]
+        for bundle in nodes(parse(listing)) where (bundle["nodeType"] as? String)?.hasSuffix("test bundle") == true {
+            guard let name = bundle["name"] as? String else { continue }
+            for node in nodes(bundle["children"]) where node["nodeType"] as? String == "Test Case" && node["result"] as? String == "Failed" {
+                if let id = node["nodeIdentifier"] as? String { found[TestID(xcresultID: id), default: []].insert(name) }
+            }
+        }
+        return found.compactMapValues { $0.count == 1 ? $0.first : nil }
+    }
+
+    /// Frames of the crashed thread shown when none has a source file: enough to reach the test's own code from the crash.
     static let topFrames = 5
+    /// Frames shown at most, down to the first with a source file: the test's own, below the runtime's.
+    static let mostFrames = 10
 
     /// A crash log's exception and the top frames of the thread that crashed, as `image  symbol`.
     public static func crashSummary(log: String) -> [String]? {
+        crashReport(log: log)?.summary
+    }
+
+    /// A crash log's summary, and the test's line: the crashed thread's frame in `test` itself, or without one, its first
+    /// frame with a source file of its own, below the runtime's frames.
+    static func crashReport(log: String, test: TestID? = nil) -> (summary: [String], location: String?)? {
         guard let newline = log.firstIndex(of: "\n"),
               let report = parse(String(log[log.index(after: newline)...])) as? [String: Any],
               let threads = report["threads"] as? [[String: Any]],
@@ -91,12 +114,22 @@ public struct ResultBundle: Sendable {
         let images = report["usedImages"] as? [[String: Any]] ?? []
         let exception = report["exception"] as? [String: Any]
         let crashed = (exception?["type"] as? String).map { type in "crashed: \(type)\((exception?["signal"] as? String).map { " (\($0))" } ?? "")" }
-        let top = frames.prefix(topFrames).map { frame in
+        let named = test.map { "\($0.suite).\($0.name)(" }
+        let ownIndex = frames.firstIndex { frame in named.map { (frame["symbol"] as? String)?.contains($0) == true } == true && ownFrame(frame) != nil }
+            ?? frames.firstIndex { ownFrame($0) != nil }
+        let own = ownIndex.map { min($0 + 1, mostFrames) } ?? topFrames
+        let top = frames.prefix(own).map { frame in
             let index = frame["imageIndex"] as? Int ?? -1
             let image = images.indices.contains(index) ? images[index]["name"] as? String ?? "?" : "?"
             return "\(image)  \(frame["symbol"] as? String ?? "?")"
         }
-        return (crashed.map { [$0] } ?? []) + top
+        return ((crashed.map { [$0] } ?? []) + top, ownIndex.flatMap { ownFrame(frames[$0]) })
+    }
+
+    /// A frame's `File.swift:12`, when the crash log names a source file of the project's own for it.
+    static func ownFrame(_ frame: [String: Any]) -> String? {
+        guard let file = frame["sourceFile"] as? String, !file.hasPrefix("/<"), let line = frame["sourceLine"] as? Int else { return nil }
+        return "\(ToolOutput.basename(file)):\(line)"
     }
 
     /// How many tests the summary counts as expected failures.
@@ -196,18 +229,18 @@ public struct ResultBundle: Sendable {
         cache.appending(path: URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
     }
 
-    /// A crash's summary, from the crash log the result bundle attached to the test.
-    public func crash(of test: TestID) async -> [String]? {
-        await attachments(of: test, onlyFailures: true, Self.crashSummary(in:))
+    /// A crash's summary, from the crash log the result bundle attached to the test, and the test's line it names.
+    public func crash(of test: TestID) async -> (summary: [String], location: String?)? {
+        await attachments(of: test, onlyFailures: true) { Self.crashSummary(in: $0, test: test) }
     }
 
-    /// A crash's summary, from the crash log among a test's exported attachments.
-    static func crashSummary(in folder: URL) -> [String]? {
+    /// A crash's summary, from the crash log among a test's exported attachments, and the test's line it names.
+    static func crashSummary(in folder: URL, test: TestID? = nil) -> (summary: [String], location: String?)? {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         guard let log = names.sorted().first(where: { $0.hasSuffix(".ips") }),
               let text = try? String(contentsOf: folder.appending(path: log), encoding: .utf8)
         else { return nil }
-        return crashSummary(log: text)
+        return crashReport(log: text, test: test)
     }
 }
 

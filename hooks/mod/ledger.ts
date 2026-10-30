@@ -26,7 +26,7 @@ export type Ledger = { entries: LedgerEntry[]; updated: number }
 export type TestRun = LedgerRun & { ok: boolean; failures: readonly Failure[]; ranAll: boolean }
 
 /** The checkout as the ledger names it: its branch, or its commit, short in text and whole in the key. */
-function label(head: Head, isShort: boolean): string {
+export function label(head: Head, isShort: boolean): string {
   if (head.branch) return head.branch
   if (head.commit) return `commit ${isShort ? head.commit.slice(0, 12) : head.commit}`
   return isShort ? 'this folder' : ''
@@ -47,7 +47,12 @@ export function ledgerOf(stored: unknown): Ledger | undefined {
  * same tool and scheme. A pass of another scheme or selection never ran them.
  */
 export function covers(passed: string, failed: string): boolean {
-  return passed === failed || (!passed.includes(' › ') && failed.startsWith(`${passed} › `))
+  return passed === failed || (isWholeScope(passed) && failed.startsWith(`${passed} › `))
+}
+
+/** Whether a run scope is a tool and scheme's whole suite, not a selection of its tests. */
+export function isWholeScope(scope: string): boolean {
+  return !scope.includes(' › ')
 }
 
 /**

@@ -244,6 +244,21 @@ XcodeGen's `info` and `entitlements` paths aren't counted yet, because reading t
 
 `$.ui.ask`, per the engine's types (Claude Code 2.1.312), "Rejects when dismissed, and in a `-p` run (no one to ask)". Either way the mod refuses the call with the reason, as it did before it asked. The types name no error that tells a dismissal from a failure to show the dialog, so any rejection refuses. A typed answer refuses too, carrying the person's words, rather than the mod reading their intent.
 
+## The project card
+
+The card reaches Claude in the context of a conversation's first message, which a mod adds with a `prompt.context` hook. The engine's types (Claude Code 2.1.312, read October 30, 2026) say the event:
+- "Fires once per conversation, when the engine computes the context blocks its first user message carries";
+- has an answer that "stands until `$.ui.invalidate("prompt.context")` or a re-read (compaction, `/clear`)";
+- treats a block whose name the engine doesn't route as one that "reaches the model in one copy … While it stands, a later answer adds, changes and takes back none."
+
+So the engine sends the card once, and keeps it unchanged until the conversation is compacted or cleared. An earlier draft added it to the system prompt through `prompt.compose`, which "Fires when the engine renders a system prompt", so every prompt. Holding the card fixed there needed module state, which a reload clears, and a first prompt that came before the card was built locked it out for the session.
+
+The hook waits for the card at most `CARD_WAIT_MS`, so a slow CLI (a first run building it, say) leaves the card out of that conversation rather than holding the request.
+
+Whether a subagent's or a `--bare` session's first message fires `prompt.context` the docs don't say, and the event's input carries no `agentId` or traits to tell. The card is short either way.
+
+The store is the plugin's, across every project, and a run scope (`test_sim · App`) doesn't name one. So each run records the session's folder (`$.session.cwd()`), and the card shows only scopes last run in this folder. Scopes from before that record stay out until they run again. The card is capped in lines and characters, with longer lists counted as "+N more".
+
 ## Toolchains
 
 On October 29, 2026, Swift 6.4.2 (Xcode 27.2 beta 3) on a contributor's Mac accepted a task-group closure that captured a local `Mutex`. CI's Swift job, on the newest Xcode of the `macos-26` runner, rejected it as a `sending` closure that risks a data race. The two compilers don't agree on every concurrency check, so a change that builds locally can still fail CI, and CI's answer is the one that counts. The `macos-26` runner image (version 20261013.0424.1) carries Xcode 26.0.1 to 26.6, and Apple's [Xcode system requirements](https://developer.apple.com/xcode/system-requirements/) put Swift 6.2 in Xcode 26.0 and 26.0.1, 6.2.1 to 6.2.3 in 26.1 to 26.3, and 6.3 in 26.4.1 to 26.6. So CI's newest toolchain was Swift 6.3, older than the contributor's 6.4.2. Each Swift job now prints its toolchain, and a floor job builds and tests on the oldest Xcode whose Swift is the version `Package.swift`'s `swift-tools-version` names.

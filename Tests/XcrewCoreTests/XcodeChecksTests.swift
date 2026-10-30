@@ -69,34 +69,110 @@ import XcrewTestSupport
         #expect(result == .warn("builds use Xcode 27.2 while the project pins Xcode 25.0 (.xcode-version), and a build may fail with another major version's SDK: xcodes install 25.0"))
     }
 
-    func pinNote(_ context: CheckContext, fixture: String, server: Server = .mobileBuildMCP, kind: Report.Kind = .build, isError: Bool = true) async throws -> String? {
-        let text = try String(contentsOf: try #require(Bundle.module.url(forResource: fixture, withExtension: "txt", subdirectory: "Fixtures/Reports")), encoding: .utf8)
-        let report = await Report.make(kind: kind, output: ToolOutput(text: text, server: server, isError: isError), home: "/home", runner: context.runner, project: context.project, machine: context.machine)
-        return report.notes.first { $0.contains("(.xcode-version)") }
+    /// A failed build's text, with one error.
+    static func buildFailure(_ error: String) -> String {
+        "\n🔨 Build\n\nErrors (1):\n\n  ✗ \(error)\n    /Users/dev/App/Sources/App.swift:2\n\n❌ Build failed. (⏱️ 3.2s)"
+    }
+
+    /// A failed build whose error is one a different SDK or toolchain gives: a module compiled by another Swift.
+    static let toolchainFailure = buildFailure("module compiled with Swift 6.1 cannot be imported by the Swift 6.3 compiler: /Users/dev/DerivedData/Build/Products/Debug-iphonesimulator/Core.swiftmodule")
+
+    static func fixture(_ name: String) -> String {
+        try! String(contentsOf: Bundle.module.url(forResource: name, withExtension: "txt", subdirectory: "Fixtures/Reports")!, encoding: .utf8)
+    }
+
+    func pinNote(_ context: CheckContext, text: String = toolchainFailure, server: Server = .mobileBuildMCP, kind: Report.Kind = .build, isError: Bool = true) async throws -> String? {
+        let report = await Report.make(kind: kind, output: ToolOutput(text: text, server: server, isError: isError), home: context.machine.home.path, runner: context.runner, project: context.project, machine: context.machine)
+        // The pin's note travels apart from the notes, for the mod to show once a session.
+        #expect(!report.notes.contains { $0.contains("(.xcode-version)") })
+        return report.pinNote
     }
 
     /// A failed MobileBuildMCP build or test in a project whose pin isn't the Xcode building says it may be the cause,
     /// in the check's own words and with its fix; a pass says nothing, nor a failure built with the pinned Xcode.
     @Test func aFailureWithAnotherXcodeThanThePinSaysItMayBeTheCause() async throws {
         let mismatched = context(pin: "25.0\n")
-        #expect(try await pinNote(mismatched, fixture: "mobileBuildFailed") == "xcrew: builds use Xcode 27.2 while the project pins Xcode 25.0 (.xcode-version): a different SDK may be the cause. To build with the pin, install Xcode 25.0 from https://developer.apple.com/download/all/")
-        #expect(try await pinNote(mismatched, fixture: "mobileBuildPassed", isError: false) == nil)
-        #expect(try await pinNote(context(pin: "27.2\n", server: nil), fixture: "mobileBuildFailed") == nil)
+        #expect(try await pinNote(mismatched) == "xcrew: builds use Xcode 27.2 while the project pins Xcode 25.0 (.xcode-version): a different SDK may be the cause. To build with the pin, install Xcode 25.0 from https://developer.apple.com/download/all/")
+        #expect(try await pinNote(mismatched, text: Self.fixture("mobileBuildPassed"), isError: false) == nil)
+        #expect(try await pinNote(context(pin: "27.2\n", server: nil)) == nil)
+    }
+
+    /// The pin is named only where another SDK or toolchain may be the cause: a type error in a line just written, a
+    /// test's failed assertion, or a run that succeeded with no tests, says nothing of it.
+    /// The run that succeeded is marked an error here, so it's the errors, not the outcome, that keep the pin out.
+    @Test(arguments: [
+        (fixture("mobileBuildFailed"), Report.Kind.build),
+        (fixture("mobileTestsFailed"), .test),
+        ("\n🧪 Test\n\n✅ Test succeeded. (⏱️ 3.4s)\n  └ Files:\n     └── ~/Library/Developer/MobileBuildMCP/workspaces/App-0000/logs/test_sim.log — Build Logs", .test),
+    ])
+    func aFailureOfTheCodeSaysNothingOfThePin(_ text: String, kind: Report.Kind) async throws {
+        #expect(try await pinNote(context(pin: "25.0\n"), text: text, kind: kind) == nil)
+    }
+
+    /// The errors another SDK or toolchain gives: a module another Swift compiled, a deployment target or SDK the
+    /// toolchain doesn't support, a platform it doesn't know.
+    @Test(arguments: [
+        "module compiled with Swift 6.1 cannot be imported by the Swift 6.3 compiler: /Users/dev/Core.swiftmodule",
+        "The iOS Simulator deployment target 'IPHONEOS_DEPLOYMENT_TARGET' is set to 11.0, but the range of supported deployment target versions is 12.0 to 27.2.99.",
+        "SDK \"iphonesimulator26.5\" cannot be located.",
+        "unrecognized platform name 'visionOS'",
+    ])
+    func anSDKOrToolchainErrorNamesThePin(_ error: String) async throws {
+        #expect(try await pinNote(context(pin: "25.0\n"), text: Self.buildFailure(error)) != nil)
+    }
+
+    /// A test run whose build failed lists only that it couldn't build; the compiler's error is in the build log it names,
+    /// and that's where the pin's cause shows.
+    @Test func aTestRunsBuildLogErrorNamesThePin() async throws {
+        let mismatched = context(pin: "25.0\n")
+        let log = mismatched.machine.home.appending(path: "Library/Developer/MobileBuildMCP/workspaces/sample-0000/logs/test_sim.log")
+        try FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "/Users/dev/App/Sources/App.swift:2:8: error: module compiled with Swift 6.1 cannot be imported by the Swift 6.3 compiler: /Users/dev/Core.swiftmodule\n".write(to: log, atomically: true, encoding: .utf8)
+        #expect(try await pinNote(mismatched, text: Self.fixture("mobileTestsBuildFailed"), kind: .test) != nil)
+        try "/Users/dev/App/Sources/App.swift:2:8: error: cannot convert value of type 'String' to specified type 'Int'\n".write(to: log, atomically: true, encoding: .utf8)
+        #expect(try await pinNote(mismatched, text: Self.fixture("mobileTestsBuildFailed"), kind: .test) == nil)
+    }
+
+    /// The code's own errors that mention an SDK, a deployment target or availability: the pin isn't their cause.
+    @Test(arguments: [
+        "'navigationTransition' is only available in iOS 26.0 or newer",
+        "Crashlytics SDK: missing GoogleService-Info.plist",
+        "cannot find 'SDK' in scope",
+        "compiling for iOS 15.0, but module 'Charts' has a minimum deployment target of iOS 16.0: /Users/dev/Charts.swiftmodule",
+    ])
+    func theCodesOwnErrorSaysNothingOfThePin(_ error: String) async throws {
+        #expect(try await pinNote(context(pin: "25.0\n"), text: Self.buildFailure(error)) == nil)
+    }
+
+    /// Only a test run whose build failed reads the build log: a failed test's log holds the app's own output.
+    @Test func aFailedTestsBuildLogIsntRead() async throws {
+        let mismatched = context(pin: "25.0\n")
+        let log = mismatched.machine.home.appending(path: "Library/Developer/MobileBuildMCP/workspaces/sample-0000/logs/test_sim.log")
+        try FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "network error: SDK \"iphonesimulator26.5\" cannot be located.\n".write(to: log, atomically: true, encoding: .utf8)
+        #expect(try await pinNote(mismatched, text: Self.fixture("mobileTestsFailed"), kind: .test) == nil)
+    }
+
+    /// The report names the pin its note is about, for the mod to name each pin once a session.
+    @Test func theReportNamesThePinItsNoteIsAbout() async throws {
+        let context = context(pin: "25.0\n")
+        let report = await Report.make(kind: .build, output: ToolOutput(text: Self.toolchainFailure, server: .mobileBuildMCP, isError: true), home: context.machine.home.path, runner: context.runner, project: context.project, machine: context.machine)
+        #expect(report.pin == "25.0 (.xcode-version)")
     }
 
     /// A run builds first unless it only launches, and fails the same way.
     @Test func aFailedRunGetsTheNoteToo() async throws {
-        #expect(try await pinNote(context(pin: "25.0\n"), fixture: "mobileBuildFailed", kind: .run) != nil)
+        #expect(try await pinNote(context(pin: "25.0\n"), kind: .run) != nil)
     }
 
     /// The Xcode MCP builds with whichever Xcode is open, which isn't what the pin decides.
     @Test func anXcodeMCPFailureGetsNoNote() async throws {
-        #expect(try await pinNote(context(pin: "25.0\n"), fixture: "xcodeBuildFailed", server: .xcode) == nil)
+        #expect(try await pinNote(context(pin: "25.0\n"), text: Self.fixture("xcodeBuildFailed"), server: .xcode) == nil)
     }
 
     /// The pin is installed but MobileBuildMCP started without it: the note says so, and the fix is a restart.
     @Test func aServerStartedWithoutThePinSaysToRestart() async throws {
-        let note = try await pinNote(context(pin: "26.4\n", launch: "timed out 30\n"), fixture: "mobileBuildFailed")
+        let note = try await pinNote(context(pin: "26.4\n", launch: "timed out 30\n"))
         #expect(note == "xcrew: MobileBuildMCP started without the project's pin, Xcode 26.4 (.xcode-version), so it builds with Xcode 27.2: a different SDK may be the cause. Restart Claude Code to build with the pin.")
     }
 

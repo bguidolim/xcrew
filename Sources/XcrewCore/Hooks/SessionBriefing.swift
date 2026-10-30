@@ -52,7 +52,7 @@ public struct SessionBriefing: Sendable {
 
     /// Said at the start, and by the mod with the session's first MobileBuildMCP build or test, while MobileBuildMCP has
     /// no scheme to build with.
-    public static let setupOffer = "MobileBuildMCP has no scheme to build this project with yet: before the first build or test, offer `/xcrew:setup`, which writes its profiles once from the project's schemes and simulators."
+    public static let setupOffer = "MobileBuildMCP has no scheme to build this project with yet. `/xcrew:setup` writes its profiles once, from the project's schemes and simulators, and can be offered to the person."
 
     func profiles() -> String? {
         guard let yaml = try? String(contentsOf: project.mobileBuildMCPConfig, encoding: .utf8) else { return nil }
@@ -84,7 +84,7 @@ public struct SessionBriefing: Sendable {
             let details = ["\(device.platform) \(device.runtimeVersion)", device.udid, device.state == "Booting" ? "booting" : nil].compactMap { $0 }
             return "\(device.name) (\(details.joined(separator: ", ")))"
         }
-        return "Simulators booted now: \(named.joined(separator: ", ")). Reuse one rather than booting another."
+        return "Simulators booted now: \(named.joined(separator: ", ")). One can be reused rather than booting another."
     }
 
     /// What Claude does while MobileBuildMCP can't serve: the Xcode MCP's build and test tools, what they lose, and the

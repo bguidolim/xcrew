@@ -4,8 +4,8 @@ import { stopwatch } from './format'
 
 /**
  * The loop budget: a scope's whole suite run again and again in a short while, each run minutes long, where the tests a
- * change can break would do. Past it, the run's result sends Claude to the affected tests, once; a fast suite never
- * gets there, and the run itself always goes ahead.
+ * change can break would do. Past it, the run's result names the `affected` tool, once; a fast suite never gets there,
+ * and the run itself always goes ahead.
  */
 
 /** The last `LOOP_RUNS` full runs of one scope, all within `LOOP_WINDOW_MS`, adding up to `LOOP_TESTING_MS`, cross the budget. */
@@ -30,10 +30,10 @@ export function loopNote(scope: string, crossed: Crossing, selectsWithOnlyTestin
   const first = crossed.runs[0]
   const last = crossed.runs[crossed.runs.length - 1] ?? first
   const span = Math.round((last.at - first.at) / 60_000)
-  const select = selectsWithOnlyTesting ? 'run those with `-only-testing:`' : 'run only those'
-  return (
-    `xcrew: that's ${crossed.runs.length} full runs of \`${scope}\` in ${span} min, with ${stopwatch(crossed.testing)} of testing. ` +
-    `Before the next one, ask the \`${AFFECTED_TOOL.name}\` tool (search for it) which test targets this branch's changes can break, and ${select}. ` +
-    'When it says to run the whole suite, run it; and run the whole suite again before the pull request.'
-  )
+  // Only MobileBuildMCP's tests take a selection, through `-only-testing:`; the Xcode MCP's run is the whole suite.
+  const tool = `The \`${AFFECTED_TOOL.name}\` tool (search for it)`
+  const said = selectsWithOnlyTesting
+    ? `${tool} can narrow the next one to the test targets this branch's changes can break, with the \`-only-testing:\` arguments that run them.`
+    : `${tool} names the test targets this branch's changes can break.`
+  return `xcrew: that's ${crossed.runs.length} full runs of \`${scope}\` in ${span} min, with ${stopwatch(crossed.testing)} of testing. ${said}`
 }

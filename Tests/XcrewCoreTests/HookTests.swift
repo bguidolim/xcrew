@@ -113,7 +113,7 @@ import XcrewTestSupport
         let project = Project.temporary(containing: ["App.xcodeproj"])
         project.write("schemaVersion: 1\nsessionDefaults:\n  workspacePath: ./App.xcodeproj\n", to: ".mobilebuildmcp/config.yaml")
         let text = await SessionBriefing(project: project, machine: Self.machine(project, version: "2.7.1")).text(routing: "rules\n")
-        #expect(text?.contains("- **xcrew:** MobileBuildMCP has no scheme to build this project with yet: before the first build or test, offer `/xcrew:setup`, which writes its profiles once from the project's schemes and simulators.") == true)
+        #expect(text?.contains("- **xcrew:** MobileBuildMCP has no scheme to build this project with yet. `/xcrew:setup` writes its profiles once, from the project's schemes and simulators, and can be offered to the person.") == true)
     }
 
     @Test func briefingWithAProfileThatNamesASchemeOffersNoSetup() async {
@@ -161,7 +161,7 @@ import XcrewTestSupport
         let listed = Self.booted.replacingOccurrences(of: #""udid":"C3","state":"Booted""#, with: #""udid":"C3","state":"Booting""#)
         let runner = FakeRunner(responses: Self.coreSimulatorRuns.merging(["xcrun simctl list devices booted --json": .init(status: 0, stdout: listed)]) { $1 })
         let text = await SessionBriefing(project: project, machine: CheckContext.fake(runner, project: project).machine).text(routing: "rules\n")
-        #expect(text?.contains("- **xcrew:** Simulators booted now: iPad Air 11-inch (M3) (iOS 26.4, C3, booting), iPhone 17 (iOS 27.2, A1). Reuse one rather than booting another.") == true)
+        #expect(text?.contains("- **xcrew:** Simulators booted now: iPad Air 11-inch (M3) (iOS 26.4, C3, booting), iPhone 17 (iOS 27.2, A1). One can be reused rather than booting another.") == true)
     }
 
     /// Only a running CoreSimulator service has simulators booted; `xcrun` without it starts one, or offers to install

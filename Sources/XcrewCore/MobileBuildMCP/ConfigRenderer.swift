@@ -72,6 +72,40 @@ public enum ConfigRenderer {
         return (names, withScheme, values(of: ["activeSessionDefaultsProfile:"], in: yaml).first)
     }
 
+    /// The scheme MobileBuildMCP builds with when a call names none, by `hasSchemeToBuild`'s rule: the active profile's,
+    /// or with none active, the global `sessionDefaults`'. Nil when that has none.
+    public static func schemeToBuild(in yaml: String) -> String? {
+        let active = profiles(in: yaml).active
+        var section: Substring = ""
+        var keyIndent: Int?
+        var profile: String?
+        for raw in yaml.split(whereSeparator: \.isNewline) {
+            let line = String(raw)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+            let indent = line.prefix { $0 == " " }.count
+            if indent == 0 {
+                (section, keyIndent, profile) = (Substring(trimmed), nil, nil)
+                continue
+            }
+            if section == "sessionDefaultsProfiles:" {
+                if keyIndent == nil { keyIndent = indent }
+                if indent == keyIndent, trimmed.hasSuffix(":") {
+                    profile = unquoted(trimmed.dropLast().trimmingCharacters(in: .whitespaces))
+                    continue
+                }
+            }
+            // YAML's null, spelled either way, names none.
+            guard let scheme = value(of: "scheme", in: line), !["", "null", "~"].contains(scheme) else { continue }
+            if let active {
+                if section == "sessionDefaultsProfiles:", profile == active { return scheme }
+            } else if section == "sessionDefaults:" {
+                return scheme
+            }
+        }
+        return nil
+    }
+
     /// Whether MobileBuildMCP has a scheme to build with: the active profile's, since a named profile stands alone, or
     /// with none active, the global `sessionDefaults`' (docs/findings.md, *MobileBuildMCP's profiles*).
     public static func hasSchemeToBuild(in yaml: String) -> Bool {

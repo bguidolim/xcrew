@@ -643,12 +643,20 @@ import XcrewTestSupport
         #expect(await Run("project", "--setup", context: .fake(project: project)).text == #"{"container":"App.xcodeproj","isGenerated":false}"#)
     }
 
+    /// An active profile whose scheme is empty has nothing to build with: setup is offered, as with no scheme at all.
+    @Test func profilesOffersSetupForAnEmptyScheme() async {
+        let project = Project.temporary(containing: ["App.xcodeproj"])
+        project.write("sessionDefaultsProfiles:\n  unit:\n    scheme: ''\nactiveSessionDefaultsProfile: unit\n", to: ".mobilebuildmcp/config.yaml")
+        #expect(await Run("project", "--profiles", context: .fake(project: project)).text.contains(#""setup":"#))
+    }
+
     /// The mod asks after a build whether setup can be offered, and says the briefing's own line when it can.
     @Test func profilesSaysSetupCanBeOfferedUntilASchemeCanBuild() async {
         let project = Project.temporary(containing: ["App.xcodeproj"])
         #expect(await Run("project", "--profiles", context: .fake(project: project)).text == #"{"isGenerated":false,"setup":"MobileBuildMCP has no scheme to build this project with yet. `/xcrew:setup` writes its profiles once, from the project's schemes and simulators, and can be offered to the person."}"#)
         project.write(ConfigRenderer.render(.init(container: "App.xcodeproj", testSimulator: "iPhone 17", testScheme: "AppTests"), root: project.root), to: ".mobilebuildmcp/config.yaml")
-        #expect(await Run("project", "--profiles", context: .fake(project: project)).text == #"{"isGenerated":false}"#)
+        // The scheme it builds with, for the mod's history when a call names none.
+        #expect(await Run("project", "--profiles", context: .fake(project: project)).text == #"{"isGenerated":false,"scheme":"AppTests"}"#)
     }
 
     /// Setup builds the container mcs resolved, so the answer the skill reads names the same one.

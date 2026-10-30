@@ -47,6 +47,11 @@ function profile() {
   return mobile.current === undefined ? undefined : mobile.profiles[mobile.current]
 }
 
+/** Whether the call or what the session showed of the server's defaults names the scheme a run builds. */
+export function namesScheme(tool: XcodeTool, input: Record<string, unknown>): boolean {
+  return schemeOf(tool, input) !== undefined
+}
+
 /** The scheme the call builds: its own argument, else the profile in use; the Xcode MCP's active one. */
 function schemeOf(tool: XcodeTool, input: Record<string, unknown>): string | undefined {
   return tool.server === 'MobileBuildMCP' ? ((input.scheme as string | undefined) ?? profile()?.scheme) : xcode.scheme
@@ -65,8 +70,8 @@ function parse(text: string): Record<string, unknown> | undefined {
  * What a run's history is kept under: the tool, its scheme, and for a test run the tests
  * `-only-testing` selects (`test_sim · App › SmallTests`), so a small module isn't measured against the whole app.
  */
-export function historyOf(tool: XcodeTool, input: Record<string, unknown>): string {
-  const scheme = schemeOf(tool, input)
+export function historyOf(tool: XcodeTool, input: Record<string, unknown>, fallbackScheme?: string): string {
+  const scheme = schemeOf(tool, input) ?? fallbackScheme
   const tests = selectedTests(input)
   return `${tool.tool}${scheme ? ` · ${scheme}` : ''}${tests.length > 0 ? `${SELECTED}${tests.join(SELECTIONS)}` : ''}`
 }

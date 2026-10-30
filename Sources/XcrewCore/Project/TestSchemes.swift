@@ -14,6 +14,28 @@ public enum TestSchemes {
         case unknown([String])
     }
 
+    /// A shared scheme, the container whose scheme it is, from the project's root, and the targets it tests.
+    public struct Scheme: Sendable, Equatable, Codable {
+        public let name: String
+        public let container: String
+        public let targets: [String]
+    }
+
+    /// The shared schemes of `containers` and the projects their workspaces list that test something, and only targets
+    /// in `targets`, the fewest first. A scheme whose test plan can't be read may test anything, so it isn't one.
+    static func testingOnly(_ targets: Set<String>, in containers: [URL], from root: URL) -> [Scheme] {
+        guard !targets.isEmpty else { return [] }
+        let base = ProjectLayout.canonical(root) + "/"
+        return Self.containers(from: containers).flatMap { container in
+            let path = ProjectLayout.canonical(container)
+            return tested(by: container).compactMap { name, tested -> Scheme? in
+                let names = Set(tested.testables.map(\.name))
+                guard tested.isWhole, !names.isEmpty, names.isSubset(of: targets) else { return nil }
+                return Scheme(name: name, container: path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path, targets: names.sorted())
+            }
+        }.sorted { ($0.targets.count, $0.name, $0.container) < ($1.targets.count, $1.name, $1.container) }
+    }
+
     /// A target a scheme tests, and the project that holds it when the scheme says.
     struct Testable: Hashable {
         let name: String
@@ -108,6 +130,11 @@ public enum TestSchemes {
 
     /// Each shared scheme's testables that run: its `TestableReference`s not skipped, and every target of its test plans.
     static func schemes(of container: URL) -> [String: [Testable]] {
+        tested(by: container).mapValues(\.testables)
+    }
+
+    /// `schemes(of:)`, with whether every test plan each scheme names could be read.
+    static func tested(by container: URL) -> [String: (testables: [Testable], isWhole: Bool)] {
         let base = container.deletingLastPathComponent()
         return sharedSchemes(of: container).reduce(into: [:]) { schemes, scheme in
             let document = scheme.document
@@ -117,8 +144,9 @@ public enum TestSchemes {
                 return Testable(name: name, project: reference.attribute(forName: "ReferencedContainer")?.stringValue.map { key(resolve($0, from: base)) })
             }
             let plans = (try? document.nodes(forXPath: "//TestAction/TestPlans/TestPlanReference/@reference")) ?? []
-            let planTargets = plans.compactMap(\.stringValue).flatMap { targets(ofPlan: resolve($0, from: base), from: base) }
-            schemes[scheme.name] = testables + planTargets
+            let planFiles = plans.compactMap(\.stringValue).map { resolve($0, from: base) }
+            let planTargets = planFiles.flatMap { targets(ofPlan: $0, from: base) }
+            schemes[scheme.name] = (testables + planTargets, planFiles.allSatisfy { plan(at: $0) != nil })
         }
     }
 

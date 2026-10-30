@@ -41,6 +41,26 @@ test('a selection names the test targets and the -only-testing arguments that ru
   expect(text).toContain('origin/main, from 0123456789ab')
 })
 
+test('each scheme that tests only selected targets is named with its own targets, and so is what none of them tests', async ($, on) => {
+  session(on, { changed: ['Modules/Feature/Sources/Feature.swift'], selections: ['AppTests', 'AppUITests', 'CoreTests', 'FeatureTests'], schemes: [{ name: 'Feature', container: 'Modules/Feature/Feature.xcodeproj', targets: ['FeatureTests'] }, { name: 'App', container: 'Modules/App/App.xcodeproj', targets: ['AppTests', 'AppUITests'] }] })
+  expect(await ask($)).toContain(' Schemes that test only selected targets: `Feature` (FeatureTests) and `App` (AppTests, AppUITests). None of them tests CoreTests.')
+})
+
+test('schemes that between them test every selected target are said to', async ($, on) => {
+  session(on, { changed: ['Feature.swift'], selections: ['FeatureTests'], schemes: [{ name: 'Feature', container: 'App.xcworkspace', targets: ['FeatureTests'] }] })
+  expect(await ask($)).toContain(' Schemes that test only selected targets: `Feature` (FeatureTests). Between them they test every selected target.')
+})
+
+test('schemes of one name are told apart by their container', async ($, on) => {
+  session(on, { changed: ['A.swift'], selections: ['ATests', 'BTests'], schemes: [{ name: 'Tests', container: 'A.xcodeproj', targets: ['ATests'] }, { name: 'Tests', container: 'B.xcodeproj', targets: ['BTests'] }] })
+  expect(await ask($)).toContain('`Tests` in A.xcodeproj (ATests) and `Tests` in B.xcodeproj (BTests)')
+})
+
+test('without such schemes no scheme is named', async ($, on) => {
+  session(on, { changed: ['Core/Store.swift'], selections: ['AppTests', 'CoreTests'] })
+  expect(await ask($)).not.toContain('Schemes that test')
+})
+
 test('when nothing narrower can be said, it names the whole suite with the reason', async ($, on) => {
   session(on, { base: 'origin/main, from 0123456789ab', changed: ['Package.resolved'], runAll: 'Package.resolved changes what the build does in a way this doesn\'t read' })
   const text = await ask($)

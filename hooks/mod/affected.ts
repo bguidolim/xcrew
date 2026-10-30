@@ -1,3 +1,5 @@
+import { joined } from './format'
+
 /**
  * The tests a change can break, for Claude before a full test run: `xcrew affected`'s answer, said so it can be acted
  * on. The selection covers the targets that own or depend on the changed files, as the project declares them, nothing
@@ -20,10 +22,23 @@ export const AFFECTED_TOOL = {
 export const AFFECTED_TOOL_NAME = 'mcp__xcrew__affected'
 
 /** What `xcrew affected` answers. */
-export type Affected = { base?: string; changed?: string[]; selections?: string[] | null; runAll?: string | null }
+export type Affected = { base?: string; changed?: string[]; selections?: string[] | null; runAll?: string | null; schemes?: { name: string; container: string; targets: string[] }[] }
 
 export function affectedArgs(input: Record<string, unknown>): string[] {
   return ['affected', ...(typeof input.base === 'string' && input.base !== '' ? ['--base', input.base] : [])]
+}
+
+/** The shared schemes that test only selected targets, each with its own, and the selected targets none of them tests. */
+function schemesText(schemes: Affected['schemes'], selections: readonly string[]): string {
+  if (!Array.isArray(schemes) || schemes.length === 0) return ''
+  const named = schemes.map(scheme => {
+    const twin = schemes.some(other => other !== scheme && other.name === scheme.name)
+    return `\`${scheme.name}\`${twin ? ` in ${scheme.container}` : ''} (${scheme.targets.join(', ')})`
+  })
+  const tested = new Set(schemes.flatMap(scheme => scheme.targets))
+  const untested = selections.filter(target => !tested.has(target))
+  const cover = untested.length === 0 ? 'Between them they test every selected target.' : `None of them tests ${joined(untested)}.`
+  return ` Schemes that test only selected targets: ${joined(named)}. ${cover}`
 }
 
 /** The answer as Claude reads it; without one from the CLI, the whole suite. */
@@ -39,6 +54,7 @@ export function affectedText(answer: unknown): string {
   }
   return (
     `The changes can break these test targets: ${affected.selections.join(', ')} (${affected.selections.map(target => `-only-testing:${target}`).join(' ')}). ` +
-    `They cover the targets that own or depend on the ${changed} changed ${changed === 1 ? 'file' : 'files'}, as the project declares them.${since}`
+    `They cover the targets that own or depend on the ${changed} changed ${changed === 1 ? 'file' : 'files'}, as the project declares them.${since}` +
+    schemesText(affected.schemes, affected.selections)
   )
 }

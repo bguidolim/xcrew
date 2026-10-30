@@ -141,6 +141,19 @@ import Testing
         #expect(routing.contains("run the whole suite"))
     }
 
+    /// The routing rules send Claude to the look tool when a UI test fails, by the name it's registered under, before it
+    /// changes the test or the view; the hook answering it matches that name.
+    @Test func theRoutingRulesLookAtAFailedUITestFirst() throws {
+        let routing = try text("context/routing.md")
+        let look = try text("hooks/mod/look.ts")
+        let plugin = try #require(try json(".claude-plugin/plugin.json")["name"] as? String)
+        let name = try #require(look.firstMatch(of: /export const LOOK_TOOL = \{\n  name: '(\w+)'/)?.1)
+        #expect(look.contains("export const LOOK_TOOL_NAME = 'mcp__\(plugin)__\(name)'"))
+        let line = try #require(routing.split(separator: "\n").first { $0.contains("UI test fails") })
+        #expect(line.contains("`\(name)`"))
+        #expect(line.contains("before changing"))
+    }
+
     /// The routing rules tell Claude how to repeat a test, with the flag the mod recognises a repeated run by, and none
     /// that stops at the first pass or failure, which can't tell flaky from real.
     @Test func theRoutingRulesRepeatATestTheWayTheModReadsIt() throws {
@@ -226,7 +239,7 @@ import Testing
     }
 
     /// Each tool the mod defines is registered at session start and answered by a hook matching its full name.
-    @Test(arguments: [("hooks/mod/ledger.ts", "LEDGER_TOOL"), ("hooks/mod/affected.ts", "AFFECTED_TOOL")])
+    @Test(arguments: [("hooks/mod/ledger.ts", "LEDGER_TOOL"), ("hooks/mod/affected.ts", "AFFECTED_TOOL"), ("hooks/mod/look.ts", "LOOK_TOOL")])
     func eachToolOfTheModsIsRegisteredAndAnswered(file: String, tool: String) throws {
         let register = try text("hooks/mod/register.ts")
         #expect(try text(file).contains("export const \(tool)_NAME = "))

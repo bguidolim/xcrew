@@ -22,14 +22,8 @@ struct LookCommand: Command {
             invocation.print(Self.noBundle)
             return 1
         }
-        // `Target/Suite/test`, as `-only-testing:` names it, is `Suite/test` in the result bundle; a name ending `()` is
-        // the bundle's own, a nested suite's `/` included.
-        let test = invocation.arguments.positional.first.map { named in
-            let parts = named.split(separator: "/")
-            return parts.count > 2 && !named.hasSuffix("()") ? TestID(suite: parts[parts.count - 2], name: parts[parts.count - 1]) : TestID(xcresultID: named)
-        }
         let bundle = ResultBundle(path: path, runner: context.runner)
-        invocation.print(await Look.report(bundle: bundle, test: test, keptIn: context.machine.cacheFolder.appending(path: "images")))
+        invocation.print(await Look.report(bundle: bundle, named: invocation.arguments.positional.first, keptIn: context.machine.cacheFolder.appending(path: "images")))
         return 0
     }
 }

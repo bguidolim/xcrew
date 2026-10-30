@@ -76,6 +76,84 @@ import XcrewTestSupport
         #expect(CIXcodes.named(in: project).map(\.version) == ["26.4"])
     }
 
+    /// A workflow that reads the pin to choose its Xcode uses the pin: CI's Xcode is the pinned version, named where the
+    /// file is read. Hashing it for a cache key, or filtering paths by it, reads nothing to choose with.
+    @Test func aWorkflowReadingThePinUsesIt() {
+        let project = Project.temporary()
+        project.write("26.5\n", to: ".xcode-version")
+        project.write("""
+            on:
+              push:
+                paths: ['.xcode-version']
+            jobs:
+              test:
+                steps:
+                  - uses: actions/cache@v4
+                    with:
+                      key: xcode-${{ hashFiles('.xcode-version') }}
+                  - run: sudo xcode-select -s "/Applications/Xcode_$(cat .xcode-version).app"
+                  - run: echo "DEVELOPER_DIR=/Applications/Xcode_$(< .xcode-version).app/Contents/Developer" >> $GITHUB_ENV
+                  - uses: some/setup-xcode@v1
+                    with:
+                      xcode-version-file: .xcode-version
+                  - run: xcodes select
+            """, to: ".github/workflows/ci.yml")
+        let named = CIXcodes.named(in: project)
+        #expect(named.map { "\($0.line) \($0.version)" } == ["10 26.5", "11 26.5", "14 26.5", "15 26.5"])
+    }
+
+    /// The version is the one in the file the workflow reads: a second pin in a subfolder is that file's, not the root's.
+    @Test func aWorkflowReadingAnotherPinFileNamesThatFilesVersion() {
+        let project = Project.temporary()
+        project.write("26.5\n", to: ".xcode-version")
+        project.write("26.4\n", to: "tools/.xcode-version")
+        project.write("steps:\n  - run: sudo xcode-select -s \"/Applications/Xcode_$(cat tools/.xcode-version).app\"\n  - uses: some/setup-xcode@v1\n    with:\n      xcode-version-file: tools/.xcode-version\n", to: ".github/workflows/ci.yml")
+        #expect(CIXcodes.named(in: project).map { "\($0.line) \($0.version)" } == ["2 26.4", "5 26.4"])
+    }
+
+    /// Reading the pin only to print or check it chooses nothing; a selecting command, an assignment, or `$GITHUB_ENV` does.
+    @Test func aPinReadOnlyToPrintItChoosesNothing() {
+        let project = Project.temporary()
+        project.write("26.5\n", to: ".xcode-version")
+        project.write("""
+            steps:
+              - run: echo "Pinned: $(cat .xcode-version)"
+              - run: test "$(cat .xcode-version)" = "26.5"
+              - run: XCODE=$(cat .xcode-version)
+              - run: echo "XCODE=$(cat .xcode-version)" >> $GITHUB_ENV
+              - run: xcodes install --select
+              - run: xcodes select && xcodebuild -version
+              - run: xcodes select 26.4
+              - run: V=$(cat .xcode-version-ci)
+            """, to: ".github/workflows/ci.yml")
+        #expect(CIXcodes.named(in: project).map { "\($0.line) \($0.version)" } == ["4 26.5", "5 26.5", "6 26.5", "7 26.5"])
+    }
+
+    /// A pin file outside the project, not a file, or holding no version, names nothing; an explicit Xcode on the same line
+    /// still does.
+    @Test func onlyAVersionInAFileOfTheProjectCounts() {
+        let project = Project.temporary()
+        project.write("ruby 3.3\nxcode 26.4\n", to: ".tool-versions")
+        project.write("""
+            steps:
+              - uses: some/setup-xcode@v1
+                with:
+                  xcode-version-file: ../../../../../../etc/hosts
+              - uses: some/setup-xcode@v1
+                with:
+                  xcode-version-file: .tool-versions
+              - run: sudo xcode-select -s /Applications/Xcode_26.4.app && test -f .xcode-version && xcodes select
+            """, to: ".github/workflows/ci.yml")
+        #expect(CIXcodes.named(in: project).map { "\($0.line) \($0.version)" } == ["8 26.4"])
+    }
+
+    /// Without a pin, a workflow reading the file names nothing: there's no version to use.
+    @Test func aWorkflowReadingAMissingPinNamesNothing() {
+        let project = Project.temporary()
+        project.write("steps:\n  - run: sudo xcode-select -s \"/Applications/Xcode_$(cat .xcode-version).app\"\n", to: ".github/workflows/ci.yml")
+        #expect(CIXcodes.named(in: project).isEmpty)
+    }
+
     @Test func thePinIsTheFileBesideTheProjectOrItsContainer() {
         let root = Project.temporary(containing: ["ios/App.xcworkspace"])
         #expect(root.xcodePin == nil)

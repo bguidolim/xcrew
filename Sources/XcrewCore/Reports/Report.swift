@@ -20,6 +20,14 @@ public struct Report: Sendable, Equatable, Codable {
     /// For a run repeated with `-test-iterations`: each repeated test, and how many of its runs failed.
     public var repeated: [ResultBundle.Repeated]?
 
+    /// The warnings in lines the branch changed, a few named; nothing when there are none.
+    static func warningsNote(_ inChanged: [ToolOutput.Warning], of total: Int) -> String? {
+        guard !inChanged.isEmpty else { return nil }
+        // Messages carry commas, so a semicolon parts them.
+        let named = inChanged.map { "\(ToolOutput.basename($0.path ?? "")):\($0.line ?? 0) \($0.message)" }
+        return "xcrew: \(inChanged.count) of \(total) warnings are in lines this branch changed\(ResultBundle.listed(named, separator: "; "))."
+    }
+
     static let noTestsNote =
         "xcrew: this test run ran no tests (passed, failed and skipped are all 0), though it reports SUCCEEDED. An -only-testing or -skip-testing filter that matches nothing does this; check the target and class names."
 
@@ -49,7 +57,7 @@ public struct Report: Sendable, Equatable, Codable {
     }
 
     /// A result Claude Code saved to a file is read back from it.
-    public static func make(kind: Kind, output: ToolOutput, home: String, runner: any CommandRunning, repeated: Bool = false) async -> Report {
+    public static func make(kind: Kind, output: ToolOutput, home: String, runner: any CommandRunning, repeated: Bool = false, project: Project? = nil) async -> Report {
         let saved = savedPath(output.text)
         let read = saved.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }.map { ToolOutput(text: $0, server: output.server, isError: output.isError) } ?? output
         let isTest = kind == .test
@@ -57,6 +65,10 @@ public struct Report: Sendable, Equatable, Codable {
         let bundle = isTest ? ResultBundle.path(in: read, home: home).map { ResultBundle(path: $0, runner: runner) } : nil
         // The summary is needed whatever the run came to, so it's asked for while the failures are looked up.
         async let bundleSummary: String? = { await bundle?.summary() }()
+        // Which lines the branch changed is asked of git meanwhile, for the warnings that name a place.
+        let warnings = read.warnings
+        let warned = warnings.compactMap(\.path)
+        async let changed: [String: [ClosedRange<Int>]]? = { if let project, !warned.isEmpty { await ChangedLines.of(warned, in: project, using: runner) } else { nil } }()
         var final = read
         var edited = false
         // A saved result stays saved unless it's compacted below: Claude Code saved it for its size, which the collapse alone may not cut enough.
@@ -84,6 +96,16 @@ public struct Report: Sendable, Equatable, Codable {
             let found = if let bundle { ResultBundle.repetitions(listing: await bundle.tests()) } else { [ResultBundle.Repeated]() }
             notes.append(ResultBundle.repetitionsNote(found) ?? ResultBundle.noRepetitionsNote)
             repeatedTests = found
+        }
+
+        // The warnings in lines this branch changed, named: those are Claude's to fix. Nothing is said about the rest, or
+        // about warnings the change causes in lines it left alone.
+        if let changed = await changed {
+            let inChanged = warnings.filter { warning in
+                guard let path = warning.path, let line = warning.line else { return false }
+                return changed[path]?.contains { $0.contains(line) } == true
+            }
+            if let note = warningsNote(inChanged, of: warnings.count) { notes.append(note) }
         }
 
         let compact = saved.flatMap { final.compactTestResult(savedPath: $0) } ?? (saved == nil ? final.compactTestText : nil)

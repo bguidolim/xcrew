@@ -1,15 +1,16 @@
 import { average, stopwatch } from './format'
-import { HISTORY, HISTORY_KEPT_MS } from './timing'
+import { HISTORY, isStale } from './timing'
 
 export const USAGE = [
   '/xcrew doctor   check this Mac and project, with the fix for anything wrong',
   '/xcrew history  how long each build, test and app run usually takes',
+  '/xcrew ledger   the tests seen failing and then passing on this branch, for a pull request',
   '/xcrew failures every failing test and compile error from the last failing run, in a pane',
   '/xcrew close    close that pane',
 ].join('\n')
 
 /** `/xcrew`, answered by the mod itself: nothing reaches Claude, and nothing costs a turn. */
-export const COMMAND = { name: 'xcrew', description: 'Xcrew: doctor, history, failures or close', argumentHint: '[doctor|history|failures|close]' }
+export const COMMAND = { name: 'xcrew', description: 'Xcrew: doctor, history, ledger, failures or close', argumentHint: '[doctor|history|ledger|failures|close]' }
 
 /** Which history lines a look keeps: those a run updated within `HISTORY_KEPT_MS`; an undated one is dated now. */
 export function keptHistory(tools: string[], updated: Readonly<Record<string, unknown>>, now: number): { kept: string[]; stamp: string[]; gone: string[] } {
@@ -20,11 +21,6 @@ export function keptHistory(tools: string[], updated: Readonly<Record<string, un
     else sorted.kept.push(tool)
   }
   return sorted
-}
-
-/** A line dated more than `HISTORY_KEPT_MS` before `now`. An undated one isn't stale: it's dated when next seen. */
-export function isStale(updated: unknown, now: number): boolean {
-  return typeof updated === 'number' && now - updated > HISTORY_KEPT_MS
 }
 
 /** `/xcrew history`: each tool's usual duration, slowest first, from its stored runs. */

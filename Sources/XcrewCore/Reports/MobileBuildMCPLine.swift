@@ -109,14 +109,14 @@ enum MobileBuildMCPLine {
         line.contains(#/^(❌|✅) \d+ tests? /#)
     }
 
-    /// A failing run's counts, from its summary line.
+    /// A run's counts, from its summary line, each by its label: a failing run's `❌ 2 tests failed, 1 passed, 1 skipped`
+    /// and a passing one's `✅ 1 test passed, 0 failed, 0 skipped` name them in different orders (docs/findings.md, *Test
+    /// reports from the two servers*).
     static func counts(in line: String) -> TestCounts? {
-        line.firstMatch(of: #/❌ (\d+) tests? failed, (\d+) passed, (\d+) skipped/#).map { TestCounts(passed: Int($0.2) ?? 0, failed: Int($0.1) ?? 0, skipped: Int($0.3) ?? 0) }
-    }
-
-    /// How many tests a summary line, passing or failing, counts as skipped.
-    static func skippedCount(in line: String) -> Int? {
-        line.firstMatch(of: #/^(?:❌|✅) \d+ tests? .*?(\d+) skipped/#).flatMap { Int($0.1) }
+        guard let passed = line.firstMatch(of: #/(\d+) (?:tests? )?passed\b/#).flatMap({ Int($0.1) }),
+              let failed = line.firstMatch(of: #/(\d+) (?:tests? )?failed\b/#).flatMap({ Int($0.1) }),
+              let skipped = line.firstMatch(of: #/(\d+) (?:tests? )?skipped\b/#).flatMap({ Int($0.1) }) else { return nil }
+        return TestCounts(passed: passed, failed: failed, skipped: skipped)
     }
 
     /// `(⏱️ 12.3s)`, how long the run took, in seconds.

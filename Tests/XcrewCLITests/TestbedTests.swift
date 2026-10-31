@@ -774,3 +774,4 @@ enum InstalledGroupDocs {
         return FileManager.default.fileExists(atPath: folder.path) ? folder : nil
     }()
 }
+

@@ -93,6 +93,13 @@ public struct Report: Sendable, Equatable, Codable {
         }
     }
 
+    /// A summary that names its first failing test, naming `first` in place of `named`, the text's first, when that one
+    /// is no failure.
+    static func naming(_ detail: String?, first: String?, insteadOf named: String?) -> String? {
+        guard let detail, let first, let named, first != named, detail.hasSuffix(" · \(named)") else { return detail }
+        return String(detail.dropLast(named.count)) + first
+    }
+
     /// The task Claude Code named in a handle: the one after "moved to the background as task", in each of its wordings
     /// (docs/findings.md, *A call moved to the background*). A server-side task's own id comes earlier and isn't it.
     static func backgroundTask(in text: String) -> String? {
@@ -225,16 +232,20 @@ public struct Report: Sendable, Equatable, Codable {
         // A run that failed because of the Mac says so first: its errors would read as the code's.
         if let why = await why { notes.insert(why, at: 0) }
 
-        // A failing test's target, from the run's test list, which skips and expected failures read too.
-        let targets = if let bundle, !summary.ok, final.failures.contains(where: \.isTest) { ResultBundle.targets(listing: await bundle.tests()) } else { [TestID: String]() }
+        // A failing test's target, from the run's test list, which skips and expected failures read too. A test the list
+        // counts passed, such as a retry that passed, is no failure, though MobileBuildMCP's text lists it.
+        let listing = if let bundle, !summary.ok, final.failures.contains(where: \.isTest) { await bundle.tests() } else { "" }
+        let targets = ResultBundle.targets(listing: listing)
+        let passed = ResultBundle.passedTests(listing: listing)
+        let failures = final.failures.filter { !$0.isTest || !passed.contains(TestID(xcresultID: $0.title)) }
         let isUnread = kind != .run && !final.isError && final.isNotTheServers
         let compact = saved.flatMap { final.compactTestResult(savedPath: $0) } ?? (saved == nil ? final.compactTestText : nil)
         return Report(
             ok: summary.ok,
-            detail: summary.detail,
+            detail: Self.naming(summary.detail, first: failures.first(where: \.isTest)?.title, insteadOf: final.failures.first(where: \.isTest)?.title),
             durationMs: final.reportedDuration,
             tests: tests,
-            failures: summary.ok ? [] : Self.attaching(images, targets: targets, to: final.failures),
+            failures: summary.ok ? [] : Self.attaching(images, targets: targets, to: failures),
             result: compact ?? (edited ? final.text : nil),
             notes: notes,
             repeated: repeatedTests,

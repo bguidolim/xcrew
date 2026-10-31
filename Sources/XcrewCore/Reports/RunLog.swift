@@ -25,7 +25,8 @@ public enum RunLog {
     /// in a run's log*).
     static func phase(in data: Data, expectedTests: Int?) -> String? {
         if let testing = testingStart(in: data) {
-            let done = testsFinished(in: String(decoding: data[testing...], as: UTF8.self))
+            let (done, isRepeated) = progress(in: String(decoding: data[testing...], as: UTF8.self))
+            if isRepeated { return "testing" }
             if let expectedTests, done <= expectedTests { return "testing \(done) of \(expectedTests)" }
             return "testing · \(done) done"
         }
@@ -54,35 +55,53 @@ public enum RunLog {
     /// - the parallel runner's `Test case '…' passed on 'Clone 1 of …'`;
     /// - a serial run's `Test Case '-[…]' passed|failed|skipped (…)`, but for an expected failure, which XCTest writes as
     ///   passed and MobileBuildMCP leaves out;
-    /// - Swift Testing's `✔ Test …() passed after …`, `failed after …` and `skipped`, a parameterised test once, but for a
+    /// - Swift Testing's `✔ Test …() passed after …`, `failed after …`, `skipped` and `was cancelled`, a parameterised test once, but for a
     ///   pass with a known issue, which MobileBuildMCP leaves out, and never a suite's line, a case's or the run's total.
     ///
     /// Plain string checks, not regular expressions: the band reads a whole test run's output once a second.
     static func testsFinished(in log: String) -> Int {
+        progress(in: log).finished
+    }
+
+    /// The tests a log says have finished, counted as `testsFinished(in:)` counts them, and whether the log has begun
+    /// testing again: an XCTest case's result written a second time, as a test plan's next configuration,
+    /// `-test-iterations`' next pass and `-retry-tests-on-failure` write it. MobileBuildMCP counts a test once however
+    /// often it ran, and the log doesn't say how many more times it will, so no count holds from there. A start of testing
+    /// written again is no sign: a relaunch after a crash writes it within one pass. Nor is a Swift Testing name, which
+    /// carries no suite, so two suites' tests of one name are two tests (docs/findings.md, *Test progress in a run's log*).
+    static func progress(in log: String) -> (finished: Int, isRepeated: Bool) {
         var count = 0
         var expected: Set<Substring> = []
+        var seen: Set<Substring> = []
+        var isRepeated = false
         for line in log.split(separator: "\n", omittingEmptySubsequences: true) {
             if line.hasPrefix("Test case '") {
-                if line.contains("' passed") || line.contains("' failed") { count += 1 }
+                if line.contains("' passed") || line.contains("' failed") {
+                    count += 1
+                    if !seen.insert(line.dropFirst("Test case '".count).prefix { $0 != "'" }).inserted { isRepeated = true }
+                }
             } else if line.hasPrefix(serialCase), let close = line.range(of: "]' ") {
                 let verdict = line[close.upperBound...]
-                let finished = verdict.hasPrefix("passed (") || verdict.hasPrefix("failed (") || verdict.hasPrefix("skipped (")
-                if finished, !expected.contains(line[line.index(line.startIndex, offsetBy: serialCase.count)..<close.lowerBound]) {
-                    count += 1
+                let test = line[..<close.lowerBound].dropFirst(serialCase.count)
+                if verdict.hasPrefix("passed (") || verdict.hasPrefix("failed (") || verdict.hasPrefix("skipped (") {
+                    if !expected.contains(test) { count += 1 }
+                    if !seen.insert(test).inserted { isRepeated = true }
                 }
             } else if let open = line.range(of: "Expected failure in -["), let close = line[open.upperBound...].firstIndex(of: "]") {
                 expected.insert(line[open.upperBound..<close])
-            } else if let counted = swiftTestingCounts(line) {
-                if counted { count += 1 }
+            } else if let counts = swiftTestingCounts(line) {
+                if counts { count += 1 }
             }
         }
-        return count
+        return (count, isRepeated)
     }
+
 
     static let serialCase = "Test Case '-["
 
     /// Whether a Swift Testing test's result line counts, or nil for any other line. Its name can hold any words, so its
-    /// result is the last `passed after` or `failed after` in it.
+    /// result is the last `passed after`, `failed after` or `was cancelled after` in it, or its end. A cancelled test
+    /// counts as skipped, as MobileBuildMCP counts it.
     static func swiftTestingCounts(_ line: Substring) -> Bool? {
         let words = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
         guard words.count == 2, !words[0].isEmpty, words[1].hasPrefix("Test "),
@@ -94,7 +113,9 @@ public enum RunLog {
             return !test[passed.upperBound...].contains("known issue")
         }
         if failed != nil { return true }
-        return test.hasSuffix(" skipped.") || test.contains(" skipped: \"") ? true : nil
+        if test.hasSuffix(" skipped.") || test.contains(" skipped: \"") { return true }
+        if let cancelled = test.range(of: " was cancelled after ", options: .backwards), !test[cancelled.upperBound...].contains(" started.") { return true }
+        return nil
     }
 
     /// The latest task's step in a log whose end holds none, such as a long run of linker warnings:

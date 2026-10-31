@@ -95,6 +95,22 @@ public struct ResultBundle: Sendable {
         }
     }
 
+    /// Each test the run's test list counts passed, as MobileBuildMCP's count does: a retried test that passed on a later
+    /// try among them, its earlier failure only in its repetitions. Never one a test of the same id failed in another
+    /// target.
+    static func passedTests(listing: String) -> Set<TestID> {
+        var passed: Set<TestID> = [], failed: Set<TestID> = []
+        for node in nodes(parse(listing)) where node["nodeType"] as? String == "Test Case" {
+            guard let id = (node["nodeIdentifier"] as? String).map(TestID.init(xcresultID:)) else { continue }
+            switch node["result"] as? String {
+            case "Passed": passed.insert(id)
+            case "Failed": failed.insert(id)
+            default: break
+            }
+        }
+        return passed.subtracting(failed)
+    }
+
     /// Each failed test's target in `xcresulttool get test-results tests` output: the test bundle it's filed under, a unit
     /// or UI test bundle named as its target is. A test of the same name failing in two bundles has none: the ledger would
     /// trust a guess.

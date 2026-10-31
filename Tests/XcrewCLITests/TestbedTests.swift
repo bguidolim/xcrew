@@ -831,4 +831,52 @@ struct TestbedRawTests {
         let total = try #require(ToolOutput(text: try Self.content("serial"), server: .mobileBuildMCP).testTotal)
         #expect(RunLog.testsFinished(in: try Self.captured("serial.log")) == total)
     }
+
+    /// A cancelled Swift Testing test counts as skipped, as MobileBuildMCP counts it: 1 passed, 1 skipped.
+    @Test func aCancelledTestCountsAsMobileBuildMCPCountsIt() throws {
+        let total = try #require(ToolOutput(text: try Self.content("cancel"), server: .mobileBuildMCP).testTotal)
+        #expect(total == 2)
+        #expect(RunLog.testsFinished(in: try Self.captured("cancel.log")) == total)
+    }
+
+    /// Swift Testing's `-test-iterations` writes each test once, under one start of testing: it counts as one pass.
+    @Test func aSwiftTestingRunIteratedCountsItsTestsOnce() throws {
+        let total = try #require(ToolOutput(text: try Self.content("shapes-iterations"), server: .mobileBuildMCP).testTotal)
+        #expect(total == 5)
+        #expect(RunLog.phase(ofLogAt: Self.raw.appending(path: "shapes-iterations.log"), expectedTests: total) == "testing 5 of 5")
+    }
+
+    /// A retried test is written again in the same pass. Up to that line the count is the run's own; from it, how many
+    /// more the run will write is unknown, so the phase is testing with no count.
+    @Test func aRetriedTestStopsTheCountAtItsSecondTry() throws {
+        let log = try Self.captured("retry.log")
+        let again = "Test Case '-[FeatureTests.ProbeTests testFails]' failed (0.001 seconds).\n"
+        let second = try #require(log.range(of: again))
+        let before = String(log[..<second.lowerBound])
+        #expect(RunLog.phase(of: before, expectedTests: 4) == "testing 1 of 4")
+        #expect(RunLog.phase(of: before + again, expectedTests: 4) == "testing")
+        #expect(RunLog.phase(of: log, expectedTests: 4) == "testing")
+    }
+
+    /// `-test-iterations 5` writes each test again in each pass. Through the first the count is the run's own; from the
+    /// first test the second pass writes, testing with no count.
+    @Test func aRepeatedRunsSecondPassStopsTheCount() throws {
+        let log = try TestbedFieldTests.captured("probes.log")
+        let again = "Test Case '-[FeatureTests.ProbeTests testExpectedFailure]' passed (0.023 seconds).\n"
+        let second = try #require(log.range(of: again))
+        let before = String(log[..<second.lowerBound])
+        #expect(RunLog.phase(of: before, expectedTests: 4) == "testing 4 of 4")
+        #expect(RunLog.phase(of: before + again, expectedTests: 4) == "testing")
+        #expect(RunLog.phase(of: log, expectedTests: 4) == "testing")
+    }
+
+    /// A crash relaunches the test runner, which writes its start of testing again in the same pass: the count goes on.
+    @Test func aRelaunchAfterACrashKeepsTheCount() {
+        #expect(RunLog.phase(ofLogAt: Self.raw.appending(path: "timing.log"), expectedTests: 5) == "testing 4 of 5")
+    }
+
+    /// A test plan's second configuration writes each test again: testing with no count.
+    @Test func aSecondConfigurationStopsTheCount() throws {
+        #expect(RunLog.phase(ofLogAt: Self.raw.appending(path: "configurations.log"), expectedTests: 3) == "testing")
+    }
 }

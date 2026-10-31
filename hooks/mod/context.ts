@@ -135,12 +135,21 @@ function parse(text: string): Record<string, unknown> | undefined {
 export function historyOf(tool: XcodeTool, input: Record<string, unknown>, fallbackScheme?: string): string {
   const scheme = schemeOf(tool, input) ?? fallbackScheme
   const tests = selectedTests(input)
-  return `${tool.tool}${scheme ? ` · ${scheme}` : ''}${tests.length > 0 ? `${SELECTED}${tests.join(SELECTIONS)}` : ''}`
+  return `${tool.tool}${scheme ? `${SCHEME}${scheme}` : ''}${tests.length > 0 ? `${SELECTED}${tests.join(SELECTIONS)}` : ''}`
 }
 
+/** What `historyOf` puts between a scope's tool and its scheme. */
+const SCHEME = ' · '
 /** What `historyOf` puts between a scope's tool and scheme and its selections, and between selections. */
 const SELECTED = ' › '
 const SELECTIONS = ', '
+
+/** A scope's scheme, as `historyOf` wrote it; empty when it named none. */
+export function schemeOfScope(scope: string): string {
+  const base = scopeParts(scope).base
+  const at = base.indexOf(SCHEME)
+  return at < 0 ? '' : base.slice(at + SCHEME.length)
+}
 
 /** A scope `historyOf` wrote, read back: its tool and scheme (`test_sim · App`), and its selections. */
 export function scopeParts(scope: string): { base: string; selections: string[] } {
@@ -161,10 +170,10 @@ export function selectedTests(input: Record<string, unknown>): string[] {
 export const NARROWING_OR_REPEATING = ['-only-test-configuration', '-skip-test-configuration', '-testPlan', '-retry-tests-on-failure', '-run-tests-until-failure']
 
 /**
- * Whether a test run ran every test its scope names, so a pass in it is a pass of each: not one that skips some
- * (`-skip-testing:`), nor an Xcode MCP run of some tests, whose selection the scope doesn't read; only its run of all.
+ * Whether a test run ran every test its scope names: not one that skips some (`-skip-testing:`), nor an Xcode MCP run of
+ * some tests, whose selection the scope doesn't read; only its run of all. Part of what makes a full-suite run.
  */
-export function runsWholeScope(tool: XcodeTool, input: Record<string, unknown>): boolean {
+function runsWholeScope(tool: XcodeTool, input: Record<string, unknown>): boolean {
   const extraArgs = Array.isArray(input.extraArgs) ? (input.extraArgs as unknown[]) : []
   if (extraArgs.some(arg => typeof arg === 'string' && arg.startsWith('-skip-testing:'))) return false
   return runsEveryTestItNames(tool)

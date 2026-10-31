@@ -141,10 +141,28 @@ import Testing
     /// Every field of a report the CLI writes is one the mod's type for it names: a field it doesn't name is one the mod
     /// never reads.
     @Test func theModsReportTypeNamesEachFieldTheCLIWrites() throws {
-        let report = Report(ok: false, detail: "d", durationMs: 1, tests: 1, failures: [], result: "r", notes: ["n"], repeated: [], isUnread: true, bundle: "/b.xcresult", pinNote: "p", pin: "26.5 (.xcode-version)", cause: "c")
+        let report = Report(ok: false, detail: "d", durationMs: 1, tests: 1, failures: [], result: "r", notes: ["n"], repeated: [], passed: [], isUnread: true, bundle: "/b.xcresult", pinNote: "p", pin: "26.5 (.xcode-version)", cause: "c")
         let keys = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as? [String: Any]).keys
         let type = try #require(try text("hooks/mod/cli.ts").firstMatch(of: /export type Report = \{([\s\S]*?)\n\}/)?.1)
         for key in keys { #expect(type.contains("  \(key)?:") || type.contains("  \(key):"), "cli.ts's Report doesn't name `\(key)`") }
+    }
+
+    /// Every field of a passed test the CLI lists is one the mod's type for it names: the ledger matches a red by them.
+    @Test func theModsPassedTypeNamesEachFieldTheCLIReports() throws {
+        let passed = PassedTest(test: "Suite/test", target: "AppTests")
+        let keys = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(passed)) as? [String: Any]).keys
+        let type = try #require(try text("hooks/mod/cli.ts").firstMatch(of: /export type Passed = \{([^}]*)\}/)?.1)
+        for key in keys { #expect(type.contains(" \(key)?:") || type.contains(" \(key):"), "cli.ts's Passed doesn't name `\(key)`") }
+    }
+
+    /// Every option the mod sends `xcrew report` is one the command takes: one it doesn't is a usage error, which the mod
+    /// reads as a report it couldn't get, and the ledger records nothing.
+    @Test func everyOptionTheModSendsReportIsOneItTakes() throws {
+        let body = try #require(try text("hooks/mod/cli.ts").firstMatch(of: /export function reportArgs\([^)]*\): string\[\] \{\n([^\n]*)\n\}/)?.1)
+        let sent = body.matches(of: /'--([a-z-]+)'/).map { String($0.1) }
+        #expect(!sent.isEmpty)
+        let command = ReportCommand()
+        for option in sent { #expect(command.flags.contains(option) || command.valuedOptions.contains(option), "report doesn't take --\(option)") }
     }
 
     /// Every field of a failure the CLI reports is one the mod's type for it names: a field it doesn't name is one the

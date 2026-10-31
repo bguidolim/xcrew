@@ -28,6 +28,13 @@ struct XcodeMCPResult: Decodable, Sendable {
     @Lenient var errors: [BuildError]?
     @Lenient var elapsedTime: Double?
 
+    /// The tests its results give as passed; nil when it gives no results. The Xcode MCP names no test bundle.
+    var passedTests: [PassedTest]? {
+        guard let results else { return nil }
+        let identifiers = results.filter { $0.state == "Passed" }.compactMap(\.identifier)
+        return identifiers.map { PassedTest(TestID(xcresultID: $0)) }.sorted()
+    }
+
     /// The build's errors, without its warnings.
     var realErrors: [BuildError] { (errors ?? []).filter { !$0.isWarning } }
 

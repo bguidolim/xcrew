@@ -5,6 +5,7 @@ import { changedRun, elsewhereTree, endedRun, outcomeLine, problemsTree, promptL
 import { afterRead, ELSEWHERE_EVERY_MS } from './elsewhere'
 import { answerOf, couldntRun, generatedOf, type Head, hashOf, headOf, isGeneratedOf, knownBuild, manifestEditOf, namedBuild, notesOf, phaseArgs, profileSchemeOf, phaseOf, problemsOf, ranOutOfTime, reportArgs, reportOf, elsewhereOf, setupOfferOf, shimPath, xcodeHostsServerOf, xcodeSchemeOf, xcodeSelectionOf, type Failure, type Problem, type Ran, type Report } from './cli'
 import { COMMAND, historyText, keptHistory, USAGE } from './command'
+import { givesConcurrency, schemeOfScope } from './concurrency'
 import { AFFECTED_TOOL, AFFECTED_TOOL_NAME, affectedArgs, affectedText } from './affected'
 import { CARD_VERSION, cardText, type SavedCard } from './card'
 import { currentProfile, describe, listingsSeen, profileKey, historyOf, isFullSuiteRun, isRepeatedRun, lost, namesScheme, observe, runsWholeScope, xcodeSelected, xcodeStarted } from './context'
@@ -214,7 +215,7 @@ export const register: Register = on => {
     // It never throws: without the CLI it falls back to whether the server reported an error.
     const repeated = kind === 'test' && isRepeatedRun(e as unknown as Record<string, unknown>)
     const reported = await answer($, reportArgs(parsed.server, kind, result.isError === true, repeated), 120_000, result.text ?? '')
-    const outcome = withPinNamedOnce(reportOf(reported, result.isError === true))
+    const outcome = withConcurrencyOnce(withPinNamedOnce(reportOf(reported, result.isError === true)), scope)
     // The server's own duration leaves out what ran around the call: a project's pre-build hook, a permission prompt.
     const elapsed = outcome.durationMs ?? ended - started
     // A result that says no outcome, as a call moved to the background answers, shows as neither and records nothing:
@@ -339,6 +340,7 @@ export const register: Register = on => {
     sessionProfileSchemes = new Map()
     found = []
     pinsNamed.clear()
+    concurrencyGiven.clear()
     seenAt = {}
     void loadProblems($).catch(() => undefined)
     void quietly(() => readXcodeStart($))
@@ -428,7 +430,9 @@ async function readTask($: EngineInterface, call: Backgrounded, text: string): P
   // The runs that ended meanwhile count among the earlier ones; the server's time leaves out the wait for the notification.
   const { passed: earlier, failed: earlierFailed } = await earlierRuns($, call.key, ended)
   const loop = await recordEnding($, { ...call, usesBand, earlier }, outcome, true, ended, outcome.durationMs ?? ended - call.startedAt)
-  return { ...(outcome.result === undefined ? {} : { result: outcome.result }), notes: [...outcome.notes, ...(loop ? [loop] : [])] }
+  // Given only once it reaches Claude: a note dropped above isn't counted as read.
+  const notes = withConcurrencyOnce(outcome, call.scope).notes
+  return { ...(outcome.result === undefined ? {} : { result: outcome.result }), notes: [...notes, ...(loop ? [loop] : [])] }
 }
 
 /** Whether a run is going now: it keeps the band from a call that ended in the background meanwhile. */
@@ -858,6 +862,19 @@ const CARD_SAVE_MS = 15_000
 const backgrounded = new Map<string, Backgrounded>()
 /** How many calls are kept waiting for their notification. */
 const UNREAD_KEPT = 20
+
+/** The highest concurrency count Claude has read this session, by scheme. */
+const concurrencyGiven = new Map<string, number>()
+
+/** Adds the run's concurrency note the first time its scheme has one this session, and when its count rises far enough
+ * above the highest given: a build and a test run of one scheme, whatever their selections, build the same code. */
+function withConcurrencyOnce(outcome: Report, scope: string): Report {
+  const counted = outcome.concurrency
+  const scheme = schemeOfScope(scope)
+  if (!counted || !givesConcurrency(concurrencyGiven.get(scheme), counted.count)) return outcome
+  concurrencyGiven.set(scheme, counted.count)
+  return { ...outcome, notes: [...outcome.notes, counted.note] }
+}
 
 /** The pins Claude has read of this session: each is named with the first failure it may explain, and not again. */
 const pinsNamed = new Set<string>()

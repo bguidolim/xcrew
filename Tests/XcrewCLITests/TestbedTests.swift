@@ -694,3 +694,83 @@ struct TestbedSetupChoicesTests {
         #expect(choices.picks == SetupChoices.Picks(appScheme: "App", uiScheme: "App", testScheme: "App", bundleID: "dev.xcrew.testbed.App"))
     }
 }
+
+/// The concurrency fixture's real diagnostics: xcodebuild's log of its frameworks, MobileBuildMCP's log of the same
+/// build, and the Swift 6 app's failed build. Each log's paths are the capture's, rewritten to a copy of the fixture so
+/// its project names each file's module.
+@Suite(.enabled(if: Testbed.isCheckedOut, "no test bed"))
+struct TestbedConcurrencyTests {
+    static func report(_ capture: String) async throws -> ConcurrencyReport {
+        let root = try TestbedTests.copy("concurrency")
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let log = try String(contentsOf: Testbed.root.appending(path: "captures/concurrency/\(capture)"), encoding: .utf8)
+        let copy = root.appending(path: "build.log")
+        try log.replacing("/testbed/concurrency", with: ProjectLayout.canonical(root)).write(to: copy, atomically: true, encoding: .utf8)
+        return try await ConcurrencyReport.read(log: copy, project: Project(root: root), groups: { _ in .read(docs: nil) }, using: FakeRunner())
+    }
+
+    @Test(arguments: ["xcodebuild-warnings.log", "build_sim.log"])
+    func theFrameworksDiagnosticsByGroupAndModule(_ capture: String) async throws {
+        let report = try await Self.report(capture)
+        #expect(report.groups.map { "\($0.name) \($0.count)" } == ["MutableGlobalVariable 2", "SendingClosureRisksDataRace 2", "SendingRisksDataRace 1"])
+        #expect(report.modules.map { "\($0.name) \($0.count)" } == ["Kit 3", "Feature 2"])
+        #expect(report.ungrouped == 1)
+        #expect(report.errors == 0)
+    }
+
+    @Test func theSwift6AppsErrorIsCounted() async throws {
+        let report = try await Self.report("xcodebuild-errors.log")
+        #expect(report.count == 1)
+        #expect(report.errors == 1)
+        #expect(report.modules.map(\.name) == ["App"])
+    }
+
+    /// xcodebuild's log writes each warning two or four times; counted once each, they're MobileBuildMCP's own list.
+    @Test func eachDiagnosticOnceIsMobileBuildMCPsList() throws {
+        let log = try String(contentsOf: Testbed.root.appending(path: "captures/concurrency/xcodebuild-warnings.log"), encoding: .utf8)
+        let distinct = Set(log.split(separator: "\n").compactMap(CompilerDiagnostic.parse))
+        let listed = try String(contentsOf: Testbed.root.appending(path: "captures/concurrency/build_sim.txt"), encoding: .utf8)
+            .split(separator: "\n").filter { $0.hasPrefix("  ⚠ ") }
+        #expect(distinct.count == listed.count)
+        #expect(Set(distinct.map(\.message)) == Set(listed.map { line in String(line.dropFirst(4)).replacing(/\ \[#[\w:]+\]$/, with: "") }))
+    }
+}
+
+/// The name rule stands in where an Xcode ships no group docs: every group this Mac's Xcode documents as concurrency's,
+/// it must catch too, so it's never weaker than the docs, and a new Swift's group shows here first.
+@Suite(.enabled(if: InstalledGroupDocs.folder != nil, "no Xcode with Swift's diagnostic group docs"))
+struct InstalledGroupDocsTests {
+    @Test func theNameRuleCatchesEveryGroupTheDocsSayIsConcurrencys() {
+        let docs = ConcurrencyGroups.read(docs: InstalledGroupDocs.folder)
+        #expect(docs.isFromDocs)
+        // Xcode 26.0 documents two groups, neither about concurrency; where the docs cover many, some must be.
+        if docs.documented.count >= 20 {
+            #expect(docs.titles.count >= 5, "too few concurrency groups in the docs at \(InstalledGroupDocs.folder?.path ?? ""): their shape changed; read: \(docs.documented.sorted())")
+        }
+        for group in docs.titles.keys.sorted() {
+            #expect(ConcurrencyGroups.namesConcurrency(group), "\(group): its doc says concurrency, its name doesn't")
+        }
+    }
+}
+
+/// The group docs of the Xcode builds use, as the command finds it: `DEVELOPER_DIR`, else `xcode-select`'s, when it
+/// ships them.
+enum InstalledGroupDocs {
+    static let folder: URL? = {
+        var developer = ProcessInfo.processInfo.environment["DEVELOPER_DIR"]
+        if developer == nil {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select")
+            process.arguments = ["-p"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardInput = FileHandle.nullDevice
+            guard (try? process.run()) != nil else { return nil }
+            process.waitUntilExit()
+            developer = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let developer, let app = Xcodes.app(holding: developer) else { return nil }
+        let folder = ConcurrencyGroups.docs(in: app)
+        return FileManager.default.fileExists(atPath: folder.path) ? folder : nil
+    }()
+}
